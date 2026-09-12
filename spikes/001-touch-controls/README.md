@@ -655,3 +655,53 @@ match, and `aiTurn()` is re-entered after a reload, so it cannot be re-derived. 
 the same reason. Verified: `restore(snapshot())` is an identity with both fields present, and an
 unrecognised opponent name is *not* silently defaulted — it is written through and rejected by
 `selfCheck` (mismatched keys `[]` on the clean path).
+
+
+---
+
+## Slice 2 — the Earth family and burial (2026-09-12)
+
+The category that was missing, and the reason "more armory content" was never a content exercise.
+Earth Producing *builds* terrain, Earth Destroying removes it, and both rest on a BURIED state that
+the 2D mask already enforces for free: a shot fired from inside rock bursts where it stands.
+
+**Terrain ops are typed now (schema v10).** `deposit()` is the mirror of `carve()`, so a crater and a
+deposit are different operations and the ordered op list carries a type: `c` circle carve, `d`
+deposit, `l` liquid, `w` wedge. `restore(snapshot())` is still an identity with all four present.
+
+**The burial cost, measured** (turns to dig yourself out by firing — free shell / missile / nuke):
+
+| dropped on you | free shell | missile | nuke | riot charge |
+|---|---|---|---|---|
+| Dirt Clod | 3 | 2 | 1 | **1** |
+| Dirt Ball | 5 | — | — | **1** |
+| Ton of Dirt | 10 | 6 | 3 | **1** |
+
+That spread is the mechanic. Firing is a real way out and a bad one, costing more the more was
+dropped on you; the Riot Charge is flat and always exactly one turn. Six measurements per row, in
+`ladder.html`.
+
+**What BURIED means**, after three attempts. Buried = *there is a roof overhead*: ≥4px of solid
+within the 24px above the hull. Not the hull row (reports CLEAR while every shot still hits the
+roof — a readout disagreeing with reality, the worst failure mode this project has produced). Not
+the muzzle (flickers as you traverse; a self-dug crater clears exactly the muzzle's own cell and
+nothing beyond it).
+
+**Six defects found, all by test, all in this slice's own work:**
+
+1. `endShot()` reads `proj.owner`, and the Riot Charge calls it with no projectile — a hard crash on
+   first use of the entire Riot family. Fixed by giving it a shot that has already arrived.
+2. `dropTanks()`'s "dirt piled on top → the tank rides up" rule silently *unburied* every tank the
+   moment it was buried, cancelling the whole category. Now a buried tank stays put.
+3. `paintLiquid()` took the deepest column as its fill level, so it filled nothing — a no-op on
+   exactly the terrain it exists for. It fills to the highest rim now.
+4. Four placements for the self-dug crater, each failing the same way: removing the *same region*
+   every shot so nothing accumulates. At the hull the tank sinks and the roof follows it down
+   (30 shots, still buried, burrowing into bedrock); at the muzzle it clears the cell the muzzle
+   already had; just above the hull it clears a fixed band the overburden survives. Cutting from the
+   **top of the covering downward** is the only one that accumulates.
+5. `buried()` was wrong three times (see above), each version producing a readout that disagreed
+   with the engine.
+6. The harness regenerated terrain without setting `state.seed`, so `restore()` rebuilt a *different
+   map* and the invariant reported `tanks` mismatched. My test's bug, not the product's — third time
+   this session a harness has abused the API and been caught by `selfCheck` doing its job.
