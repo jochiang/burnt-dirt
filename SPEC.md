@@ -284,6 +284,12 @@ further and clean off the field** (impact 366 → 628). It makes its own firing 
 
 ## Open — everything not done, in one place
 
+**Opponents and armory have their own design doc:** `DESIGN-opponents-and-armory.md`.
+Both named priorities hide a question larger than their name — difficulty is the *opponent*
+(the 1991 manual contains no difficulty setting at all; it contains a roster), and "more
+armory content" requires a BURIED state that the existing 2D mask already enforces for free.
+Its §8 carries the decisions still open.
+
 Kept here so it does not have to be reconstructed from conversation. Three kinds, deliberately
 separated, because "unfinished" and "broken" are not the same claim.
 
