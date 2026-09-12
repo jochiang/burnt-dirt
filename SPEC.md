@@ -290,7 +290,10 @@ Both named priorities hide a question larger than their name — difficulty is t
 armory content" requires a BURIED state that the existing 2D mask already enforces for free.
 Its §8 carries the decisions still open. **Slice 1 is built**: the six-rung opponent ladder
 (MORON/SHOOTER/TOSSER/SPOILER/CHOOSER/UNKNOWN — chosen in the armory, saved with the match, schema
-v9) and the TRACER / SMOKE TRC information weapons. The ladder is measured rather than asserted —
+v9) and the TRACER / SMOKE TRC information weapons. **Slice 2 is built**: the Earth family (Dirt
+Clod / Ball / Ton, Liquid Dirt, Riot Charge / Blast / Bomb), the BURIED state with a HULL readout,
+and typed terrain ops — a crater and a deposit are different operations now, so the ordered op list
+carries a type (schema v10). Every terrain change remains a literal recorded op. The ladder is measured rather than asserted —
 see `spikes/001-touch-controls/ladder.html`, which re-runs the sweep.
 
 Kept here so it does not have to be reconstructed from conversation. Three kinds, deliberately

@@ -176,6 +176,30 @@ So this is not a new mechanic. It is three small additions to an existing one.
 3. **The remedy.** Riot Charge (a wedge carve around your own turret) and Riot Blast (a wider one).
    Both are shaped calls to the existing `carve()`.
 
+**What BURIED means, since two of three definitions were wrong.** Buried means *there is a roof
+overhead*: at least 4px of solid within the 24px above the hull. It is deliberately not a test of the
+hull row — that reports CLEAR while every shot still hits the roof, which is a readout disagreeing
+with reality, the worst kind of bug this project has produced. It is also not a test of the muzzle:
+that flickers as you traverse the turret, and a self-dug crater clears exactly the muzzle's own cell
+and nothing beyond it.
+
+**And the cost of firing your way out, measured** (free Baby Missile / Missile / Nuke):
+
+| dropped on you | free shell | missile | nuke | riot charge |
+|---|---|---|---|---|
+| Dirt Clod | 3 turns | 2 | 1 | **1 turn** |
+| Dirt Ball | 5 | — | — | **1 turn** |
+| Ton of Dirt | 10 | 6 | 3 | **1 turn** |
+
+That spread *is* the mechanic: firing is a real way out and a bad one, and its cost scales with how
+much was dropped on you, against a designed answer that is flat. Reaching it took four placements for
+the self-dug crater, and every failure was the same failure — removing the *same region* every shot,
+so nothing accumulates. At the hull the tank sinks and the roof follows it down (30 shots, still
+buried, burrowing into bedrock). At the muzzle it clears the cell the muzzle already had. Just above
+the hull it clears a fixed band the overburden survives. Only cutting from the **top of the covering
+downward** accumulates — which is exactly why the cost is proportional, because a bigger shell takes
+a bigger bite.
+
 ### 3.4 Why the categories are self-consistent
 
 Worth stating, because it's what makes the catalog feel designed rather than accumulated:

@@ -122,6 +122,40 @@ function run(){
        '<tr><td>buried shot carves (the way out)</td><td class="' + (buried.carved > 0 ? 'ok' : 'bad') + '">' + buried.carved + '</td></tr>' +
        '<tr><td>buried shot detonates on tick 1</td><td class="' + (!buried.still_flying ? 'ok' : 'bad') + '">' + (!buried.still_flying) + '</td></tr>' +
        '</table>';
+  // ---- burial: both ways out, measured, proportional to what was dropped on you ----
+  const buryThen = (seed, dropR, wIdx) => {
+    S.recording=false; S.state.carves=[]; S.state.seed=seed;      // seed MUST be set, or a restore
+    S.genTerrain(seed); S.placeTanks(); S.recording=true;         // rebuilds a different map
+    S.state.wind=0; S.state.log=[]; S.state.phase='aim'; S.state.ammo.fill(0);
+    const p = S.player;
+    S.deposit(p.x, p.y - dropR*0.5, dropR);
+    if(!S.buried(p)) return 'not buried!';
+    let shots = 0;
+    for(let k=0;k<40;k++){ S.state.ammo[wIdx]=99; S.state.wIdx=wIdx; S.state.phase='aim';
+      S.fire('player'); let n=0; while(S.proj && n<4000){ S.stepProj(); n++; } shots++;
+      if(!S.buried(p)) break; }
+    return S.buried(p) ? '&gt;' + shots : String(shots);
+  };
+  const riotOut = (idx, seed, dropR) => {
+    S.recording=false; S.state.carves=[]; S.state.seed=seed;
+    S.genTerrain(seed); S.placeTanks(); S.recording=true;
+    S.state.wind=0; S.state.log=[]; S.state.phase='aim'; S.state.ammo.fill(0);
+    const p = S.player; S.deposit(p.x, p.y - dropR*0.5, dropR);
+    if(!S.buried(p)) return 'not buried!';
+    S.state.ammo[idx]=1; S.state.wIdx=idx; S.state.phase='aim'; S.fire('player');
+    return S.buried(p) ? '<span class="bad">still buried</span>' : '<span class="ok">freed in 1</span>';
+  };
+  h += '<h2>BURIAL — TURNS COST, BY WHAT WAS DROPPED ON YOU</h2><table>' +
+       '<tr><th>dropped</th><th>free shell</th><th>missile</th><th>nuke</th><th>riot charge</th></tr>' +
+       '<tr><td>Dirt Clod</td><td>' + buryThen(102,19,0) + '</td><td>' + buryThen(102,19,1) + '</td>' +
+       '<td>' + buryThen(102,19,3) + '</td><td>' + riotOut(8,103,19) + '</td></tr>' +
+       '<tr><td>Dirt Ball</td><td>' + buryThen(102,33,0) + '</td><td>' + buryThen(102,33,1) + '</td>' +
+       '<td>' + buryThen(102,33,3) + '</td><td>' + riotOut(8,103,33) + '</td></tr>' +
+       '<tr><td>Ton o Dirt</td><td>' + buryThen(102,66,0) + '</td><td>' + buryThen(102,66,1) + '</td>' +
+       '<td>' + buryThen(102,66,3) + '</td><td>' + riotOut(8,103,66) + '</td></tr></table>' +
+       '<p>Firing your way out is supposed to be bad, and it should get worse the more was dropped ' +
+       'on you — that is the penalty that replaces a damage rule. The Riot Charge is the designed ' +
+       'answer and must always take exactly one turn.</p>';
   $('out').innerHTML = h;
 }
 addEventListener('load', () => setTimeout(run, 500));

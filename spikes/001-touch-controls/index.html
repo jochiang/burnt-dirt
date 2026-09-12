@@ -116,6 +116,8 @@
   /* ---------- armory: the economy lives OUTSIDE the match ---------- */
   /* the original showed a parachute icon plus a count on the status bar, greyed when you have
      none and dark when deployed — same information, one tap to toggle */
+  #buryStat .v{color:#8b9bb0}
+  #buryStat.on .v{color:#ff8a6a;font-weight:700}
   #chuteStat{cursor:pointer}
   #chuteStat .v{color:#8b9bb0}
   #chuteStat.on .v{color:#7fd4ff}
@@ -147,6 +149,8 @@
     #armTitle{font-size:12.5px}
     #armCash{font-size:15px}
   }
+  .catHead{grid-column:1/-1;font-size:9px;letter-spacing:.18em;color:#c9975a;
+       border-bottom:1px solid rgba(201,151,90,.28);padding-bottom:2px;margin-top:3px}
   #armOppRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   #armOpp{display:flex;gap:4px;flex-wrap:wrap}
   .opp{font-size:9px;letter-spacing:.08em;padding:5px 8px;border-radius:5px;font-family:inherit;
@@ -249,6 +253,7 @@
       <div class="stat"><span class="k">WIND</span><span class="v wind mono" id="windV">0</span></div>
       <div class="stat"><span class="k">HP</span><span class="v mono" id="hpV">100</span></div>
       <div class="stat" id="chuteStat"><span class="k">CHUTE</span><span class="v mono" id="chuteV">—</span></div>
+      <div class="stat" id="buryStat"><span class="k">HULL</span><span class="v mono" id="buryV">CLEAR</span></div>
     </div>
     <div id="weapons"></div>
     </div>
@@ -316,12 +321,12 @@ function physTag(){ return GRAV + ',' + WIND_A + ',' + VMAX.toFixed(4); }
 const TICKS_PER_FRAME = 3;    // sim runs ~3x realtime: gap-sized shots
 
 const WEAPONS = [
-  {name:'BABY MSL', r:9,  dmg:22, price:0},                 // free and unlimited: you can always play
-  {name:'MISSILE',  r:15, dmg:40, price:60},
-  {name:'BABY NUKE',r:24, dmg:58, price:180},
-  {name:'NUKE',     r:38, dmg:85, price:520},
-  {name:'DIGGER',   r:11, dmg:0,  price:140, tunnels:true},
-  {name:'ROLLER',   r:30, dmg:60, price:260, rolls:true},
+  {name:'BABY MSL', r:9,  dmg:22, price:0, cat:'standard'},                 // free and unlimited: you can always play
+  {name:'MISSILE',  r:15, dmg:40, price:60, cat:'standard'},
+  {name:'BABY NUKE',r:24, dmg:58, price:180, cat:'standard'},
+  {name:'NUKE',     r:38, dmg:85, price:520, cat:'standard'},
+  {name:'DIGGER',   r:11, dmg:0,  price:140, tunnels:true, cat:'destroying'},
+  {name:'ROLLER',   r:30, dmg:60, price:260, rolls:true, cat:'standard'},
   // Information weapons: they deal nothing and remove nothing. What they buy is a FACT — where a
   // shot lands — and the real price is the turn spent finding out. The manual sells Tracers at $10
   // for 20 and Smoke Tracers at $500 for 10: a 100x premium for a trail that stays on screen,
@@ -329,7 +334,27 @@ const WEAPONS = [
   // because the turn is the cost and the price only has to be non-zero.
   {name:'TRACER',   r:0,  dmg:0,  price:2, trace:true},
   {name:'SMOKE TRC',r:0,  dmg:0,  price:8, trace:true, smoke:true},
+
+  /* --- Earth Destroying. Dirt is the target; a tank is never directly harmed. "Most of these
+     weapons cannot directly harm a tank, though they can cause them to fall and take damage that
+     way." Riot Charges and Blasts are not aimed at all: they cut a wedge around YOUR OWN turret,
+     which is the designed way out of a burial. --- */
+  {name:'RIOT CHARGE', r:0, dmg:0, price:40,  self:{half:45, depth:22}, cat:'destroying'},
+  {name:'RIOT BLAST',  r:0, dmg:0, price:90,  self:{half:65, depth:34}, cat:'destroying'},
+  {name:'RIOT BOMB',   r:26, dmg:0, price:120, earth:true,              cat:'destroying'},
+
+  /* --- Earth Producing. The mirror image, and the only category that BUILDS terrain: "These
+     weapons can be used to build fortifications, or bury enemy tanks." A Ton of Dirt is "easily
+     capable of burying someone alive". --- */
+  {name:'DIRT CLOD',  r:19, dmg:0, price:30,  deposits:true, cat:'producing'},
+  {name:'DIRT BALL',  r:33, dmg:0, price:60,  deposits:true, cat:'producing'},
+  {name:'TON O DIRT', r:66, dmg:0, price:200, deposits:true, cat:'producing'},
+  {name:'LIQUID DIRT',r:28, dmg:0, price:80,  liquid:true,   cat:'producing'},
 ];
+// Prices are PROVISIONAL, fitted by the design doc's rule: rank order preserved, anchored on the
+// existing pairs, top end compressed so one win still buys something meaningful.
+const CATS = [['standard','STANDARD'], ['destroying','EARTH DESTROYING'],
+              ['producing','EARTH PRODUCING']];
 /* The 1991 manual's roster of computer opponents (se-manual.txt ~367) — which IS the difficulty
    ladder, because the manual contains no difficulty setting at all. Each entry is a set of
    COMPETENCES rather than an error radius: the difference between rungs is what the AI knows how
@@ -366,7 +391,7 @@ const state = {
   carves:[],          // every terrain-modifying op in order: the entire persistence story
   cash:START_CASH, aiCash:START_CASH,   // two bankrolls, both fed by damage dealt
   earned:0, aiEarned:0,                 // damage attributed this match, for the payout
-  ammo:[0,0,0,0,0,0,0,0], armor:0,      // bought in the armory, spent in the match
+  ammo:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], armor:0,   // bought in the armory, spent in the match
   paid:false, payout:0, armory:true,    // a match settles exactly once
   wins:0, losses:0,                     // the only progression there is
   chutes:0, aiChutes:0,                 // accessories: consumed only when one actually opens
@@ -539,7 +564,11 @@ function dropTanks(){
   for(const t of [player, enemy]){
     if(t.dead) continue;
     const g = groundUnder(t);
-    if(g <= t.y){ t.y = Math.min(t.y, g); continue; }   // dirt piled on top: the tank rides up
+    // Dirt piled on top normally means the tank rides up on it — that is what keeps a tank sitting
+    // on a ridge rather than inside it. But if the tank's own hull is inside terrain it is BURIED,
+    // and lifting it out would quietly cancel the entire Earth Producing category. Buried tanks
+    // stay where they are and deal with it.
+    if(g <= t.y){ if(!buried(t)) t.y = Math.min(t.y, g); continue; }
     const fall = g - t.y;
     t.y = g;
     fallVis[t === player ? 'player' : 'enemy'] = fall;
@@ -564,13 +593,27 @@ function dropTanks(){
   }
 }
 
-function carve(cx, cy, r){
-  // A crater is a literal coordinate, not a re-simulation, so a save survives any retune of
-  // the ballistics. This is the whole reason persistence is cheap here.
-  // Quantize the crater centre first: the recorded op must be EXACTLY what gets rasterized,
-  // or a replay lands each crater up to half a pixel off and the terrain drifts silently.
-  cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
-  if(recording) state.carves.push([cx, cy, r]);
+/* ---------- terrain ops ----------
+   Every terrain change is a literal, TYPED operation recorded in order, and the whole map is
+   reconstructible from the seed plus that list. Carving was the only op for a long time; Earth
+   Producing weapons add a deposit, which is the same idea pointing the other way, so the list
+   grows a type field rather than a parallel history. */
+const OP = {CIRCLE:'c', DEPOSIT:'d', LIQUID:'l', WEDGE:'w'};
+function record(op){ if(recording) state.carves.push(op); }
+function applyOp(op){
+  if(op[0] === OP.CIRCLE)        paintCircle(op[1], op[2], op[3], 0);
+  else if(op[0] === OP.DEPOSIT)  paintCircle(op[1], op[2], op[3], 1);
+  else if(op[0] === OP.LIQUID)   paintLiquid(op[1], op[2]);
+  else if(op[0] === OP.WEDGE)    paintWedge(op[1], op[2], op[3], op[4], op[5]);
+}
+// resurfacing is shared: fix the affected columns, then let anything standing on them fall
+function resurface(x0, x1){
+  x0 = Math.max(0, x0); x1 = Math.min(W-1, x1);
+  for(let x=x0;x<=x1;x++){ let y=0; while(y<H && !mask[y*W+x]) y++; surf[x]=y; }
+  dropTanks();    // the ground moved. Anything standing on it comes down with it.
+  terrainDirty = true;
+}
+function paintCircle(cx, cy, r, v){
   const x0 = Math.max(0, Math.floor(cx-r)), x1 = Math.min(W-1, Math.ceil(cx+r));
   const y0 = Math.max(0, Math.floor(cy-r)), y1 = Math.min(H-1, Math.ceil(cy+r));
   const r2 = r*r;
@@ -578,12 +621,95 @@ function carve(cx, cy, r){
     const dy = y-cy, row = y*W;
     for(let x=x0;x<=x1;x++){
       const dx = x-cx;
-      if(dx*dx+dy*dy <= r2) mask[row+x] = 0;
+      if(dx*dx+dy*dy <= r2) mask[row+x] = v;
     }
   }
-  for(let x=x0;x<=x1;x++){ let y=0; while(y<H && !mask[y*W+x]) y++; surf[x]=y; }
-  dropTanks();    // the ground moved. Anything standing on it comes down with it.
-  terrainDirty = true;
+  resurface(x0, x1);
+}
+function carve(cx, cy, r){
+  // A crater is a literal coordinate, not a re-simulation, so a save survives any retune of the
+  // ballistics. This is the whole reason persistence is cheap here.
+  // Quantize the centre first: the recorded op must be EXACTLY what gets rasterized, or a replay
+  // lands each crater up to half a pixel off and the terrain drifts silently.
+  cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
+  record([OP.CIRCLE, cx, cy, r]);
+  paintCircle(cx, cy, r, 0);
+}
+// The mirror of carve(): a sphere of compacted earth, exploded into dirt.
+function deposit(cx, cy, r){
+  cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
+  record([OP.DEPOSIT, cx, cy, r]);
+  paintCircle(cx, cy, r, 1);
+}
+// "Liquid Dirt oozes out wherever it lands, filling holes and smoothing the terrain." So it does
+// not stamp a dome: it fills each column in reach up to the highest rim around it, which is what
+// filling holes and smoothing actually means. The only op here that reads what it changes.
+function liquidDirt(cx, r){
+  cx = Math.round(cx); r = Math.round(r);
+  record([OP.LIQUID, cx, r]);
+  paintLiquid(cx, r);
+}
+function paintLiquid(cx, r){
+  const x0 = Math.max(0, cx-r), x1 = Math.min(W-1, cx+r);
+  // The level to fill TO is the HIGHEST ground in reach — the rim of the depression. Taking the
+  // deepest column instead fills nothing at all: it fills the one column that is already full,
+  // which is how the first version managed to be a no-op on exactly the terrain it exists for.
+  let rim = H;
+  for(let x=x0;x<=x1;x++) rim = Math.min(rim, surf[x]);
+  for(let x=x0;x<=x1;x++){
+    const top = Math.round(rim), bottom = Math.round(surf[x]);
+    for(let y=Math.max(0, top); y<Math.min(H, bottom); y++) mask[y*W+x] = 1;
+  }
+  resurface(x0, x1);
+}
+// A fan of rays cut from a point. Riot Charges are self-centred by definition, so this takes the
+// turret and carves DOWNWARD around it — the dirt that traps a buried tank is below and around.
+function paintWedge(tx, ty, angDeg, half, depth){
+  const a0 = angDeg*Math.PI/180;
+  for(let d=1; d<=depth; d++){
+    for(let s=-half; s<=half; s+=0.5){
+      const a = a0 + s*Math.PI/180;
+      const x = Math.round(tx + Math.cos(a)*d), y = Math.round(ty - Math.sin(a)*d);
+      if(x<0||x>=W||y<0||y>=H) continue;
+      mask[y*W+x] = 0;
+    }
+  }
+  // Plus a clearing around the turret itself, and this is the part that matters: the manual says
+  // the wedge comes "from around your turret", and its whole PURPOSE is to unbury you. Without it
+  // the wedge cuts the ground out from under a tank and leaves the barrel still packed in dirt —
+  // the escape would look like it worked and the shots would still burst at the muzzle. The radius
+  // is set to clear the muzzle ring (10px out) in every direction.
+  const cxx = Math.round(tx), cyy = Math.round(ty), free = Math.max(10, depth + 6);
+  for(let y=cyy-free; y<=cyy+free; y++)
+    for(let x=cxx-free; x<=cxx+free; x++){
+      const dx=x-cxx, dy=y-cyy;
+      if(dx*dx+dy*dy <= free*free && x>=0&&x<W&&y>=0&&y<H) mask[y*W+x] = 0;
+    }
+  resurface(cxx-depth, cxx+depth);
+}
+function wedgeCarve(t, half, depth){
+  const ang = 270;    // straight down in screen space (y grows downward, sin is negated)
+  record([OP.WEDGE, Math.round(t.x), Math.round(tankCy(t)), ang, half, depth]);
+  paintWedge(t.x, tankCy(t), ang, half, depth);
+}
+// A tank is buried when its hull centre or the muzzle above it is inside rock. No new rule gives
+// that teeth: the shot spawns at the muzzle, the muzzle is in dirt, and stepProj bursts it there.
+function buried(t){
+  if(t.dead) return false;
+  const cy = tankCy(t);
+  if(cy < 0 || cy >= H) return false;
+  // BURIED MEANS THERE IS A ROOF OVERHEAD. Two definitions failed before this one, and both
+  // failures are worth recording because each looked reasonable:
+  //   - testing the hull row said CLEAR after a single crater, while 50px of dirt still sat on the
+  //     roof — a readout disagreeing with reality, the worst kind of bug this project has;
+  //   - testing the muzzle's whole firing arc never said CLEAR at all, because a self-dug crater
+  //     clears exactly the muzzle's own cell and nothing beyond it.
+  // Overburden is stable (no dependence on where the barrel points), it is the physical fact the
+  // phrase describes, and it is precisely what a self-dig has to eat through — which is what makes
+  // firing your way out cost time proportional to what was dropped on you.
+  let roof = 0;
+  for(let y = cy - 24; y < cy; y++) if(solid(t.x, y)) roof++;
+  return roof >= 4;      // a speck of dirt is cover; a real covering is a burial
 }
 function platform(cx, hw){
   for(let x=0;x<W;x++) if(!Number.isFinite(surf[x])) surf[x] = H*0.75;
@@ -734,15 +860,33 @@ function renderArmory(){
                   '<button data-sell="' + i + '">−</button></div>' + (extra || '');
     grid.appendChild(d);
   };
-  WEAPONS.forEach((w,i) => {
-    const owned = i === 0 ? '∞' : (state.ammo[i] || 0);
-    const cls = i === 0 ? 'free' : (state.cash < w.price && !state.ammo[i] ? 'poor' : '');
-    card(i, w.name, w.price,
-      w.trace   ? 'no damage, no crater — it marks exactly where a shot lands so the next one can bracket off it'
-      : w.tunnels ? 'bores a tunnel into the ground · no direct damage — it hurts by dropping what stands on it'
-                : 'dmg ' + w.dmg + ' · blast ' + w.r + (w.rolls ? ' · rolls downhill' : ''),
-      owned, cls);
+  // The manual's own categories, used as section headings rather than invented tab names. At
+  // nineteen items a flat grid stops being a catalog: you can no longer see what KIND of thing you
+  // are choosing between, which is the whole decision the armory asks you to make.
+  const catHead = (label) => {
+    const d = document.createElement('div');
+    d.className = 'catHead'; d.textContent = label;
+    grid.appendChild(d);
+  };
+  CATS.forEach(([key, label]) => {
+    const members = WEAPONS.map((w,i) => [w,i]).filter(([w]) => w.cat === key);
+    if(!members.length) return;
+    catHead(label);
+    members.forEach(([w,i]) => {
+      const owned = i === 0 ? '∞' : (state.ammo[i] || 0);
+      const cls = i === 0 ? 'free' : (state.cash < w.price && !state.ammo[i] ? 'poor' : '');
+      card(i, w.name, w.price,
+        w.trace    ? 'no damage, no crater — marks exactly where a shot lands so the next one can bracket off it'
+        : w.self     ? 'cuts a wedge out of the dirt around your own turret · the way out of a burial'
+        : w.deposits ? 'drops a dome of dirt · buries a tank, blocks a lane, or builds yourself cover'
+        : w.liquid   ? 'fills holes and smooths the ground · flattens a route for a Roller'
+        : w.earth    ? 'removes dirt, harms nothing · opens a lane, or drops whatever stands on it'
+        : w.tunnels  ? 'bores a tunnel into the ground · no direct damage — it hurts by dropping what stands on it'
+                     : 'dmg ' + w.dmg + ' · blast ' + w.r + (w.rolls ? ' · rolls downhill' : ''),
+        owned, cls);
+    });
   });
+  catHead('ACCESSORIES');
   card('s', 'ARMOR', SHIELD_PRICE, 'absorbs ' + SHIELD_ABSORB + ' damage before your hull',
        state.armor, state.cash < SHIELD_PRICE && state.armor === 0 ? 'poor' : '');
   card('c', 'PARACHUTE', CHUTE_PRICE,
@@ -778,7 +922,9 @@ function renderArmory(){
    literal carve ops, and the tank/AI/log state. The 120,000-byte mask is never stored.
    What it takes to survive a phone lock or a discarded background tab fits in ~1KB. */
 const SAVE_KEY = 'scorched.save.v1';
-const SAVE_VERSION = 9;   // v9: the opponent is part of a match's identity, and smoke trails are
+const SAVE_VERSION = 10;  // v10: terrain ops are TYPED (a crater and a deposit are different
+                          // things now), so an older carve list cannot be replayed.
+                          // v9: the opponent is part of a match's identity, and smoke trails are
                           // the first visual state that no terrain replay can reconstruct.
                           // v6: the terrain generator is no longer a heightmap, so an older seed
                           // rebuilds a different map. Refuse them rather than load a landscape
@@ -899,7 +1045,7 @@ function restore(sv){
   genTerrain(sv.seed);
   placeTanks();
   recording = false;                       // replay craters without re-recording them
-  for(const c of (sv.carves || [])) carve(c[0], c[1], c[2]);
+  for(const op of (sv.carves || [])) applyOp(op);   // typed: crater, deposit, liquid or wedge
   recording = true;
   state.carves = (sv.carves || []).map(c => c.slice());
 
@@ -917,7 +1063,7 @@ function restore(sv){
   state.opponent = OPPONENTS[sv.opponent] ? sv.opponent : 'TOSSER';
   state.cash = sv.cash; state.aiCash = sv.aiCash;
   state.earned = sv.earned; state.aiEarned = sv.aiEarned;
-  state.ammo = (sv.ammo || [0,0,0,0,0,0,0,0]).slice();
+  state.ammo = (sv.ammo || [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).slice();
   state.armor = sv.armor; state.paid = sv.paid;
   state.payout = sv.payout; state.armory = !!sv.armory;
   state.wins = sv.wins; state.losses = sv.losses;
@@ -993,6 +1139,21 @@ function fire(who){
     }
     if(wi > 0) state.ammo[wi]--;                     // the free shell is never spent
   }
+  const w = WEAPONS[wi];
+  if(w.self){
+    // Riot Charges are not aimed at anything: they cut a wedge around your OWN turret, which is
+    // exactly why they are the way out of a burial. No projectile, but it still costs the turn.
+    wedgeCarve(t, w.self.half, w.self.depth);
+    state.fx.push({x:t.x, y:tankCy(t), r:10, t:0, dirt:true});
+    // endShot() is written around a projectile: it reads the owner, the weapon and the path to
+    // build the log entry and the ghost. A Riot Charge IS a shot, it just never leaves the turret,
+    // so give it one that has already arrived — otherwise this crashes on first use.
+    proj = { x:t.x, y:tankCy(t), vx:0, vy:0, path:[[t.x, tankCy(t)]], owner:who, w:w, wIdx:wi, t:0 };
+    state.phase = 'flying';
+    state.msg = who === 'player' ? 'IN FLIGHT' : 'COMPUTER FIRES';
+    endShot(Math.round(t.x), 'riot');
+    return;
+  }
   const rad = t.angle*Math.PI/180;
   const v0 = t.power/1000*VMAX;
   const px = t.x + Math.cos(rad)*10, py = tankCy(t) - Math.sin(rad)*10;
@@ -1015,8 +1176,25 @@ function stepProj(){
     // to carve, or the third way out of a burial — keep firing and dig yourself out badly, one
     // crater at a time — does not exist, and the whole no-damage rule rests on that option being
     // real. It deals no damage, to anyone, because burial is punished in TURNS, not hit points.
-    carve(p.x, p.y, Math.max(4, p.w.r*0.7));
-    state.fx.push({x:p.x, y:p.y, r:Math.max(4, p.w.r*0.7), t:0});
+    if(p.owner === 'player') state.msg = 'BURIED · SHOT BURST AT THE MUZZLE';
+    // The crater is centred on the FIRER, not on the muzzle. Carving at the muzzle digs dirt off
+    // the roof and leaves the hull exactly as covered as it was — the tank can fire forever and
+    // never get out, which is the third way out silently not existing. The muzzle position is still
+    // where the flash goes, because that is where the shell hit.
+    // The crater is cut from the TOP of the overburden downward. Three other placements were
+    // measured and all three fail in the same way — they remove the same region on every shot, so
+    // nothing accumulates and the tank never gets out:
+    //   at the hull   -> removes its own floor; the tank sinks and the roof follows it down (30
+    //                    shots with a Baby Missile, still buried, burrowing into bedrock)
+    //   at the muzzle -> clears the exact cell the muzzle already occupied, and nothing else
+    //   above the hull-> clears a fixed band below the roof, which the 24px window survives
+    // Eating from the top is the only placement that makes progress, and it makes it in proportion
+    // to the shell: a Baby Missile needs a few turns, a Nuke does it in one.
+    const firer = p.owner === 'player' ? player : enemy, r = Math.max(5, p.w.r*0.7);
+    let top = tankCy(firer);
+    while(top > 0 && solid(firer.x, top - 1)) top--;      // the first open cell above the tank
+    state.fx.push({x:p.x, y:p.y, r, t:0});
+    carve(firer.x, top + r*0.5, r);
     endShot(Math.round(p.x), 'buried'); return;
   }
   p.t++;
@@ -1084,8 +1262,23 @@ function explode(x, y){
     state.fx.push({x, y, r:5, t:0, trace:true});
     endShot(Math.round(x), 'traced'); return;
   }
+  if(w.deposits || w.liquid){
+    // Earth Producing. The blast of dirt is centred ABOVE the impact, so the result is a dome
+    // standing proud of the ground rather than a sphere buried inside it — that is the difference
+    // between burying a tank and doing nothing visible at all.
+    const dy = w.liquid ? 0 : -w.r*0.5;
+    state.fx.push({x, y:y+dy, r:w.r*0.8, t:0, dirt:true});
+    if(w.liquid) liquidDirt(Math.round(x), w.r);
+    else deposit(x, y+dy, w.r);
+    endShot(Math.round(x), 'dirt'); return;
+  }
   carve(x, y, w.r);
   state.fx.push({x, y, r:w.r, t:0});
+  if(w.earth){
+    // Earth Destroying: removes dirt and nothing else. "Most of these weapons cannot directly harm
+    // a tank, though they can cause them to fall and take damage that way."
+    endShot(Math.round(x), 'crater'); return;
+  }
   const R = w.r*1.7, owner = proj.owner;
   for(const pair of [['player',player],['enemy',enemy]]){
     const k = pair[0], t = pair[1];
@@ -1664,6 +1857,11 @@ fsLabel();
 /* ---------- hud sync ---------- */
 function syncHud(){
   // "if you have no parachutes, both the number and the icon will be gray"
+  // If you are under dirt you cannot see your tank, and your shots burst where they stand. Without
+  // this readout that is indistinguishable from the game being broken.
+  const isBuried = buried(player);
+  $('buryV').textContent = isBuried ? 'BURIED' : 'CLEAR';
+  $('buryStat').classList.toggle('on', isBuried);
   $('chuteStat').classList.toggle('on', state.chutes > 0 && state.chuteArmed);
   $('chuteStat').classList.toggle('none', state.chutes === 0);
   $('chuteV').textContent = state.chutes === 0 ? 'NONE'
@@ -1753,7 +1951,8 @@ window.__spike = {
   GRAV, WIND_A, TANKW, TANKH, HUD_W, HUD_BAND,
   get cw(){return cw;}, get ch(){return ch;}, get fit(){return fit;},
   get ox(){return ox;}, get oy(){return oy;},
-  carve, save, restore, selfCheck, snapshot, readSave, solid, dropTanks, groundUnder, buildWeapons,
+  carve, deposit, liquidDirt, wedgeCarve, applyOp, paintCircle, paintLiquid, paintWedge, buried, OP, CATS,
+  save, restore, selfCheck, snapshot, readSave, solid, dropTanks, groundUnder, buildWeapons,
   genTerrain, placeTanks, resize, render, syncHud, redrawTerrain, setField,
   buy, buyShield, buyChute, bumpThresh, startMatch, openArmory, renderArmory, aiPickWeapon, roller,
   OPPONENTS, OPP_ORDER, effectiveOpponent, aiRng, losClear, simShot, solvedShot, bracketShot,
