@@ -282,8 +282,9 @@ affordable.
    Mag at $40,000 must not become a 1,000 CR item.
 4. Round to numbers a player can do arithmetic with in their head.
 
-*Open:* the fitted numbers for the full catalog. Slice 1's items are fitted below; the rest should be
-fitted when they're actually built, not now.
+***Deferred to playtesting*** *(decided 2026-09-12)*. Money-based progression is the right shape and
+easy to reason about, so the fitted numbers are not worth designing in the abstract. But deferring an
+economy to playtesting only works if playtesting *produces numbers* — see §4.5.
 
 ### 4.3 Arms Level — the original's own gate
 
@@ -294,15 +295,22 @@ so many options to deal with... The Arms Level also affects available accessorie
 So the original's answer to "the catalog is overwhelming" is a setup filter, not a difficulty dial —
 consistent with §2.1.
 
-*Open, two options:*
+***Decided: (a), the faithful setup gate*** *(2026-09-12)* — the setup gate is good for modifying the
+gameplay. Arms Level becomes an armory control, 0–4 with default 4, and the catalog filters on it.
+Option (b), win-gated unlocks, is **dropped rather than postponed**: it adds meta-progression the game
+doesn't have, and the gate is the better knob because it changes the *match* instead of the *save*.
 
-- **(a) Faithful gate.** Arms Level as an armory setting, default 4 (everything). Simple, and it keeps
-  progression exactly where the manual puts it.
-- **(b) Win-gated unlock.** Items unlock as you win. This is a real change to the economy's shape, and
-  adds meta-progression the game currently doesn't have. It's a bigger decision than it looks and
-  shouldn't be smuggled in with a settings row.
+Implications worth writing down before it's built:
 
-I'd take (a) now and treat (b) as its own question.
+- **It applies to the computer too.** The manual is explicit that it "lets you disallow the use of
+  certain items from the game" — from the *game*, not from the player. The AI's catalog is filtered by
+  the same level, so a level-1 game is a genuinely small game, not a handicap match.
+- **It lives in the armory**, with the other setup controls, for the established reason: the armory is
+  the front door.
+- **It is part of the match's identity**, like the opponent. It goes into the save beside `opponent`
+  (§2.5) and into `SETTLED` — a match resumed under a different Arms Level is a different match.
+- **Default 4 is a real default**: it means "everything", so a player who never touches the control
+  sees the whole catalog.
 
 ### 4.4 The armory as a catalog
 
@@ -314,6 +322,22 @@ phone viewport. A ~49-item catalog needs:
   a second game;
 - the fullscreen/field/handedness controls staying where they are;
 - scrolling that works at short viewport heights (already fixed once — the `safe center` trap).
+
+### 4.5 What playtesting needs from the build
+
+An economy deferred to playtesting is an economy that has to be *observed* — and this game has no
+backend and no build step by design, so the data has to be produced locally, not shipped to a server.
+The minimum is a per-match record of what was bought, what was fired, what was never bought, and the
+payout. The cheapest honest form is a summary the player can read and copy — on the match-over screen,
+or behind a long-press in the armory — rather than telemetry, which this project has deliberately
+avoided.
+
+Questions the numbers should be able to answer:
+
+- Is anything **never bought**? If so, is it priced wrong or is it pointless?
+- Is the free Baby Missile the backbone we assume, or does it crowd out the rest of the catalog?
+- Does the **win bonus** dominate the damage payout, so that the economy rewards finishing rather than
+  fighting?
 
 ---
 
@@ -396,9 +420,11 @@ doesn't inform the next shot would be a wasted feature.
 1. **Cyborg in a duel** — is "finishes the weakened" the right adaptation of "chooses targets"?
 2. **Buried tanks and damage** — confirm dirt deposit does no damage (§3.5).
 3. **Can a buried tank fire?** Proposed: yes, and it hits its own surroundings. Needs deciding.
-4. **Arms Level** — faithful setup gate (a) or win-gated unlocks (b)? (§4.3)
-5. **Do opponents differ in skill only, or also in wealth?** Proposed: **skill only**. A poor Moron
+4. **Do opponents differ in skill only, or also in wealth?** Proposed: **skill only**. A poor Moron
    confuses two axes and makes the ladder harder to read. (The AI already has its own bankroll, so
    this is a real choice.)
-6. **Full catalog price fitting** — needs the rank-order/compression rule applied item by item.
-7. **Poolshark** — recorded as unbuildable without rebounding walls. Revisit only if walls return.
+5. **Poolshark** — recorded as unbuildable without rebounding walls. Revisit only if walls return.
+
+*Settled 2026-09-12:* **Arms Level is the faithful setup gate** (§4.3), applying to the AI as well as
+the player. **Catalog price fitting is deferred to playtesting** (§4.2) — which promotes local
+instrumentation (§4.5) from a nicety to a prerequisite.
