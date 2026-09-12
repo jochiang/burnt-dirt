@@ -196,9 +196,10 @@ Worth stating, because it's what makes the catalog feel designed rather than acc
   instead of firing, and the enemy does not. The scarce resource in a turn-based duel is the turn, so
   burial already stings without touching the health bar — and it leaves the arithmetic of "damage is a
   pure function of fall height" completely intact, which is what keeps fall damage testable.
-- *Open:* can a buried tank fire at all? Proposed: yes, and it hits its own surroundings — no special
-  case, the mask decides. The alternative (an explicit "you may not fire" rule) adds a state the
-  physics already expresses.
+- ***Decided: a buried tank fires normally*** *(2026-09-12)*. It has to be able to, or the mechanic
+  doesn't work — see §3.6. There is no special rule: the shot spawns at the muzzle, the muzzle is
+  inside rock, and the mask decides the rest. The alternative ("you may not fire") would add a state
+  the physics already expresses, and would turn burial into a stun-lock rather than a delay.
 - *Open:* does being buried protect a tank from enemy fire? Implied yes, since enemy shots hit the
   dirt first — which is exactly why Riot Bombs exist.
 
@@ -219,10 +220,15 @@ quick.
   weapon" (1222) — it carves a sphere wherever it lands. Fired while buried, it detonates at your own
   feet and clears the dirt around you. That is an *emergent* second way out, found rather than
   designed, and it should be left in.
-- **Or you can just keep firing.** A buried tank's shots hit its own surroundings, which is not
-  useless — it digs you out badly, one crater at a time, at the cost of your ammunition and your
-  shots. That third option existing is precisely why no damage rule is needed: the player already has
-  a real decision under pressure, which is the pleasure the entire game is built on.
+- **Or you can just keep firing** — and this option is *required*, not a nicety. The chain runs:
+  no damage (§3.5) → the penalty is turns → so turns must stay *spendable*, which means a buried tank
+  must still be able to fire (§3.5). Without that, burial is a stun-lock: a buried player has no move
+  at all, an AI that buries you wins by default, and the "dig out or keep firing" decision that
+  justifies having no damage rule ceases to exist.
+
+  Mechanically it is already correct: a shot from inside rock hits its own surroundings, so it digs you
+  out badly, one crater at a time, at the cost of your shots and your ammunition. A buried tank's
+  shots cannot reach the enemy — that is the whole penalty — but they are never wasted turns.
 
 The trade in the other direction is that **burying yourself is a legitimate defensive play** — Earth
 Producing as fortification (§3.4) — and it costs you the same turns it costs them.
@@ -433,6 +439,13 @@ surroundings and damage nothing; (2) one Riot Charge clears it in a single turn;
 projectile clears it too, in more than one turn; (4) **the tank's health is unchanged throughout.**
 That last assertion is the one that matters — it is what proves no damage rule crept in.
 
+**A projectile that spawns inside solid rock detonates immediately.** This is the implementation risk
+the firing decision (§3.5) exposes, and it must be tested rather than assumed: if collision is checked
+*after* the first integration step, a buried tank's shot would travel a tick through rock and could
+escape — which would make burial nearly pointless and quietly break the mechanic. Assert that a
+projectile spawned at a point inside the mask detonates on tick 1 and carves there. If the sim doesn't
+already behave that way, the fix is an explicit solid-check at spawn, not a special case for burial.
+
 ---
 
 ## 7. Files likely to change
@@ -451,12 +464,13 @@ That last assertion is the one that matters — it is what proves no damage rule
 ## 8. Open questions
 
 1. **Cyborg in a duel** — is "finishes the weakened" the right adaptation of "chooses targets"?
-2. **Can a buried tank fire?** Proposed: yes, and it hits its own surroundings. Needs deciding.
-4. **Do opponents differ in skill only, or also in wealth?** Proposed: **skill only**. A poor Moron
+2. **Do opponents differ in skill only, or also in wealth?** Proposed: **skill only**. A poor Moron
    confuses two axes and makes the ladder harder to read. (The AI already has its own bankroll, so
    this is a real choice.)
-5. **Poolshark** — recorded as unbuildable without rebounding walls. Revisit only if walls return.
+3. **Poolshark** — recorded as unbuildable without rebounding walls. Revisit only if walls return.
 
 *Settled 2026-09-12:* **Arms Level is the faithful setup gate** (§4.3), applying to the AI as well as
 the player. **Catalog price fitting is deferred to playtesting** (§4.2) — which promotes local
-instrumentation (§4.5) from a nicety to a prerequisite.
+instrumentation (§4.5) from a nicety to a prerequisite. **Buried tanks take no damage** and **must
+still be able to fire** (§3.5) — together these make burial a delay rather than a stun-lock, which is
+what lets it be punished by turns instead of hit points.
