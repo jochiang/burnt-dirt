@@ -189,15 +189,43 @@ Worth stating, because it's what makes the catalog feel designed rather than acc
   (*"Most of these weapons cannot directly harm a tank, though they can cause them to fall and take
   damage that way"*, 1204). All damage comes from falling.
 
-### 3.5 Decisions to make
+### 3.5 Decisions
 
-- *Proposed:* dirt landing on a tank does **no** damage. Symmetric with the rule above, and it keeps
-  the arithmetic of "damage is a pure function of fall height" intact.
+- ***Decided: dirt landing on a tank does no damage*** *(2026-09-12)* — the original's rule, and the
+  better one. The penalty for being buried is **turns, not hit points**: you spend a turn digging out
+  instead of firing, and the enemy does not. The scarce resource in a turn-based duel is the turn, so
+  burial already stings without touching the health bar — and it leaves the arithmetic of "damage is a
+  pure function of fall height" completely intact, which is what keeps fall damage testable.
 - *Open:* can a buried tank fire at all? Proposed: yes, and it hits its own surroundings — no special
   case, the mask decides. The alternative (an explicit "you may not fire" rule) adds a state the
   physics already expresses.
 - *Open:* does being buried protect a tank from enemy fire? Implied yes, since enemy shots hit the
   dirt first — which is exactly why Riot Bombs exist.
+
+### 3.6 The cost of being buried is a number of turns
+
+Because the penalty is turns rather than health, the *number of turns* is the whole balance of this
+mechanic, and it should be chosen deliberately rather than discovered later.
+
+Stated intent: **being buried should be survivable but expensive.** A dig-out costing several turns
+would compound the very penalty that no damage rule exists to avoid — so the designed way out must be
+quick.
+
+- **Riot Charge and Riot Blast are self-centred.** The manual has them destroy "a wedge-shaped section
+  of dirt from around your turret" (1211, 1216) — they are the designed way out, and one should clear
+  a buried tank in **a single turn**. That makes burial a one-turn swing: you lose a shot, they get a
+  free one. Meaningful, survivable, repeatable.
+- **Riot Bombs are projectiles.** "Unlike Riot Charges and Riot Blasts, the Riot Bomb is a projectile
+  weapon" (1222) — it carves a sphere wherever it lands. Fired while buried, it detonates at your own
+  feet and clears the dirt around you. That is an *emergent* second way out, found rather than
+  designed, and it should be left in.
+- **Or you can just keep firing.** A buried tank's shots hit its own surroundings, which is not
+  useless — it digs you out badly, one crater at a time, at the cost of your ammunition and your
+  shots. That third option existing is precisely why no damage rule is needed: the player already has
+  a real decision under pressure, which is the pleasure the entire game is built on.
+
+The trade in the other direction is that **burying yourself is a legitimate defensive play** — Earth
+Producing as fortification (§3.4) — and it costs you the same turns it costs them.
 
 ---
 
@@ -400,6 +428,11 @@ deposit appears in `carves` in order; a resumed match reproduces the same mask h
 **Tracers.** No damage dealt; path recorded; *and the bracket should use it* — a ranging shot that
 doesn't inform the next shot would be a wasted feature.
 
+**Burial costs the turns we chose, and nothing else.** A buried tank: (1) its shots hit its own
+surroundings and damage nothing; (2) one Riot Charge clears it in a single turn; (3) a point-blank
+projectile clears it too, in more than one turn; (4) **the tank's health is unchanged throughout.**
+That last assertion is the one that matters — it is what proves no damage rule crept in.
+
 ---
 
 ## 7. Files likely to change
@@ -418,8 +451,7 @@ doesn't inform the next shot would be a wasted feature.
 ## 8. Open questions
 
 1. **Cyborg in a duel** — is "finishes the weakened" the right adaptation of "chooses targets"?
-2. **Buried tanks and damage** — confirm dirt deposit does no damage (§3.5).
-3. **Can a buried tank fire?** Proposed: yes, and it hits its own surroundings. Needs deciding.
+2. **Can a buried tank fire?** Proposed: yes, and it hits its own surroundings. Needs deciding.
 4. **Do opponents differ in skill only, or also in wealth?** Proposed: **skill only**. A poor Moron
    confuses two axes and makes the ladder harder to read. (The AI already has its own bankroll, so
    this is a real choice.)
