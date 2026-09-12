@@ -168,7 +168,12 @@ function run(){
     S.fire('player');
     let n=0, saw=0;
     while((S.proj || S.extras.length) && n<30000){ S.stepProj(); n++; saw = Math.max(saw, S.extras.length); }
-    return { carves: S.state.carves.length - c, warheads: saw + 1 };
+    // Count what the weapon FIRES, not what happened to be airborne: Leapfrog and the Funky Bomb are
+    // single projectiles that detonate several times, so shells-in-flight would print 1 for both and
+    // read as a failure. The craters column is what proves the detonations actually happened.
+    const w = S.WEAPONS[S.W_IDX[name]];
+    return { carves: S.state.carves.length - c,
+             warheads: w.mirv || (w.seq ? w.seq.length : 0) || w.funky || 1 };
   };
   // the dud: an air cell whose exact post-integration position is solid. A MIRV that meets terrain
   // before apogee must NOT explode — that rule is the only thing keeping five warheads fair.
