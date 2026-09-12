@@ -1,0 +1,4 @@
+# The game is under version control now, so these ad-hoc snapshots are superseded by git
+# history. Nothing was deleted from disk — they are simply not tracked or published.
+spikes/001-touch-controls/*.bak
+spikes/001-touch-controls/*.pre-*

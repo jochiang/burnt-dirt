@@ -1,0 +1,52 @@
+# Deploy the playable spike to GitHub Pages.
+#
+# Action versions are copied from GitHub's OWN starter workflow
+# (actions/starter-workflows -> pages/static.yml, fetched over the API) rather than guessed.
+# Note that the latest releases are newer than that template — checkout v7, configure-pages v6 —
+# but the template's set is the combination GitHub documents and tests together, so it is the one
+# used here. Bump deliberately, not by habit.
+name: deploy spike 001 to Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'spikes/001-touch-controls/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Stage the playable files
+        # The site ROOT is the game, so testing on a phone is one tap and no navigation.
+        # The .pre-* backups and the fixed-vs-buggy twins stay in the repo but do not ship.
+        run: |
+          mkdir -p _site
+          cp spikes/001-touch-controls/index.html   _site/
+          cp spikes/001-touch-controls/harness.html _site/
+          cp spikes/001-touch-controls/armory.html  _site/
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

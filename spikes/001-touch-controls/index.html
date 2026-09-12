@@ -1,0 +1,1572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#05070b">
+<title>SCORCHED · spike 001 · touch controls</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#05070b;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:#e8e2d6;
+    user-select:none;-webkit-user-select:none;touch-action:none}
+  canvas{position:fixed;inset:0;display:block;touch-action:none}
+
+  /* ---------- HUD: a dedicated bottom band. The field is rendered ABOVE it, so the
+       controls cannot occlude the battlefield, by construction. ---------- */
+  #hud{position:fixed;left:0;right:0;bottom:0;height:104px;display:flex;flex-direction:row;
+       align-items:center;justify-content:space-between;gap:6px;padding:5px;
+       pointer-events:none;z-index:10}
+  #hud.right{flex-direction:row-reverse}
+  #hud .box{pointer-events:auto;background:rgba(8,11,16,.82);border:1px solid rgba(232,226,214,.14);
+       border-radius:7px;padding:5px 6px;backdrop-filter:blur(6px)}
+  .cluster{display:flex;align-items:center;gap:6px}
+  .stack{display:flex;flex-direction:column;gap:3px}
+  #logBox{width:min(38vw,330px);height:76px;overflow:hidden}
+
+  /* ---------- column mode: the HUD takes a side pillar, field takes the rest.
+       This is what a 4:3 field leaves you: 19.5:9 minus 4:3 = two fat pillars. ---------- */
+  #hud.column{top:0;bottom:0;height:auto;width:176px;flex-direction:column;
+       justify-content:center;align-items:stretch;gap:5px}
+  #hud.column.left{left:0;right:auto}
+  #hud.column:not(.left){left:auto;right:0}
+  #hud.column .cluster{flex-direction:column;align-items:stretch;gap:5px}
+  /* the column is 390px of screen with ~10 blocks to fit: be explicit about the grid rather
+     than letting flex wrap decide (it chose 3 stat rows and overflowed both ends) */
+  #hud.column .row{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+  #hud.column .stat{padding:2px 4px;gap:3px}
+  #hud.column .stat .v{font-size:15px}
+  #hud.column .stat .k{font-size:7.5px}
+  #hud.column .nudge button{width:17px;height:13px;font-size:8px}
+  #hud.column #weapons{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+  #hud.column .chip{text-align:center;padding:4px 2px}
+  #hud.column #logBox{height:auto;max-height:58px}
+  #hud.column .ctl{flex-direction:column;align-items:stretch}
+  #hud.column #pad{width:100%;height:62px}
+  #hud.column #angleTrack{width:100%}
+  #hud.column #fire{width:100%;height:34px}
+  #hud.column #logBox{width:auto}
+  .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .mono{font-variant-numeric:tabular-nums}
+
+  .stat{display:flex;align-items:baseline;gap:4px;background:rgba(255,255,255,.05);
+        border-radius:5px;padding:3px 5px}
+  .stat .k{font-size:8px;letter-spacing:.14em;color:#8b9bb0}
+  .stat .v{font-size:17px;font-weight:700;line-height:1;color:#ffb454}
+  .stat .v.wind{color:#7fd4ff}
+  .stat .u{font-size:9px;color:#8b9bb0}
+  .nudge{display:flex;flex-direction:column;gap:1px}
+  .nudge button{width:19px;height:12px;font-size:9px;line-height:1;padding:0;
+        background:rgba(255,255,255,.09);color:#e8e2d6;border:1px solid rgba(255,255,255,.16);
+        border-radius:3px;font-family:inherit}
+  .nudge button:active{background:#ffb454;color:#101418}
+
+  .ctl{display:flex;gap:6px;align-items:stretch}
+  #pad{width:68px;height:68px;border-radius:8px;border:1px dashed rgba(255,180,84,.5);
+       background:repeating-linear-gradient(45deg,rgba(255,180,84,.05) 0 6px,transparent 6px 12px);
+       display:flex;align-items:center;justify-content:center;font-size:7.5px;color:#c9975a;
+       text-align:center;line-height:1.3;touch-action:none}
+  #pad.drag{border-style:solid;background:rgba(255,180,84,.14)}
+  #bars{display:none;flex-direction:column;gap:5px;justify-content:space-between}
+  #angleTrack{position:relative;width:126px;height:24px;border-radius:5px;
+       background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);touch-action:none}
+  #angleKnob{position:absolute;top:-3px;width:9px;height:32px;margin-left:-4.5px;border-radius:3px;
+       background:#ffb454;box-shadow:0 0 8px rgba(255,180,84,.6)}
+  #pwrWrap{display:flex;gap:6px;align-items:center}
+  #pwrTrack{position:relative;width:24px;height:54px;border-radius:5px;
+       background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);touch-action:none}
+  #pwrFill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,#7a3c14,#ffb454);
+       border-radius:4px;height:50%}
+  .trackLbl{font-size:7.5px;letter-spacing:.12em;color:#8b9bb0}
+
+  #weapons{display:flex;gap:3px;flex-wrap:wrap}
+  .chip{font-size:8px;letter-spacing:.06em;padding:4px 6px;border-radius:4px;
+        background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);font-family:inherit;
+        color:#c3cad4}
+  .chip.on{background:#ffb454;color:#101418;border-color:#ffb454;font-weight:700}
+
+  #fire{width:72px;height:38px;border-radius:8px;border:1px solid #ff5a3c;
+        background:linear-gradient(180deg,rgba(255,90,60,.35),rgba(255,90,60,.12));
+        color:#ffd8cd;font-family:inherit;font-size:12px;font-weight:700;letter-spacing:.14em}
+  #fire:active{background:#ff5a3c;color:#12060a}
+  #fire:disabled{opacity:.32}
+
+  #log{font-size:8px;line-height:1.5;color:#8b9bb0;min-height:12px}
+  #log b{color:#ffb454;font-weight:400}
+  #fireCol{display:flex;flex-direction:column;gap:4px;justify-content:flex-end}
+  .ctl{margin-bottom:4px}
+  #weapons{margin-bottom:3px}
+
+  #top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;gap:4px;
+       padding:5px;z-index:11;pointer-events:none}
+  #top .box{pointer-events:auto;padding:3px 5px;background:rgba(8,11,16,.7);
+       border:1px solid rgba(232,226,214,.13);border-radius:6px;display:flex;gap:3px;align-items:center}
+  #top.padleft{padding-left:184px}
+  #top.padright{padding-right:184px}
+  .vbtn{font-size:8px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,.07);
+        border:1px solid rgba(255,255,255,.13);color:#c3cad4;font-family:inherit}
+  .vbtn.on{background:#7fd4ff;color:#08131a;border-color:#7fd4ff;font-weight:700}
+  .tiny{font-size:7.5px;color:#6d7c90;letter-spacing:.06em}
+
+  #banner{position:fixed;left:0;right:0;top:33%;text-align:center;pointer-events:none;z-index:9}
+  #banner div{display:inline-block;font-size:12.5px;letter-spacing:.2em;padding:5px 12px;
+       background:rgba(8,11,16,.72);border:1px solid rgba(232,226,214,.14);border-radius:7px}
+  /* ---------- armory: the economy lives OUTSIDE the match ---------- */
+  /* the original showed a parachute icon plus a count on the status bar, greyed when you have
+     none and dark when deployed — same information, one tap to toggle */
+  #chuteStat{cursor:pointer}
+  #chuteStat .v{color:#8b9bb0}
+  #chuteStat.on .v{color:#7fd4ff}
+  #chuteStat.none .v{color:#4a5260;cursor:default}
+  #armory{position:fixed;inset:0;display:none;flex-direction:column;gap:6px;padding:8px;
+       background:#05070b;z-index:30;overflow-y:auto}
+  #armHead{display:flex;align-items:baseline;gap:10px}
+  #armTitle{font-size:14px;letter-spacing:.3em;color:#ffb454;font-weight:700}
+  #armCash{font-size:17px;color:#8ce37f;font-weight:700;font-variant-numeric:tabular-nums}
+  #armRec{font-size:8.5px;color:#c3cad4;margin-left:14px}
+  #armLoad{font-size:8.5px;color:#8b9bb0;margin-left:auto}
+  #armGrid{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(182px,1fr));
+       gap:7px;overflow:auto;
+       /* Plain `center` was the bug. When the rows are taller than the box the overflow goes ABOVE
+          the scroll origin, so the top row is clipped AND unreachable — you cannot scroll to a
+          negative offset. That only showed in a windowed browser, where the toolbars make the
+          viewport short; fullscreen was tall enough to fit and centring looked fine.
+          `safe center` degrades to `start` when the content would overflow, so a tall screen still
+          centres and a short one starts at the top and scrolls. The plain value first is the
+          fallback for engines that don't understand `safe`. */
+       align-content:center;align-content:safe center}
+  /* A windowed phone browser is short — toolbars can eat 100px of a 390px landscape height.
+     Tighten the furniture so the armory still fits, and let the scroll above absorb the rest. */
+  @media (max-height:430px){
+    #armory{gap:4px;padding:6px}
+    #armGrid{gap:5px}
+    .card{padding:6px 8px;gap:4px}
+    #armFoot{gap:8px}
+    #armTitle{font-size:12.5px}
+    #armCash{font-size:15px}
+  }
+  .card{background:rgba(255,255,255,.045);border:1px solid rgba(232,226,214,.14);
+       border-radius:8px;padding:8px 9px;display:flex;flex-direction:column;gap:5px}
+  .card.free{border-color:rgba(140,227,127,.4)}
+  .card.poor{opacity:.42}
+  .cn{font-size:11px;font-weight:700;color:#e8e2d6;letter-spacing:.05em}
+  .cp{font-size:10px;color:#ffb454;font-variant-numeric:tabular-nums}
+  .card.free .cp{color:#8ce37f}
+  .cs{font-size:8.5px;color:#8b9bb0;line-height:1.4}
+  .cq{display:flex;align-items:center;gap:6px;margin-top:auto}
+  /* 32x30, not 23x20: the old size was under half a fingertip and this is a phone game */
+  .cq button{width:32px;height:30px;font-size:17px;line-height:1;border-radius:5px;padding:0;
+       background:rgba(255,255,255,.1);color:#e8e2d6;border:1px solid rgba(255,255,255,.18);font-family:inherit}
+  .cq button:active{background:#ffb454;color:#101418}
+  .cq span{font-size:15px;font-weight:700;color:#7fd4ff;min-width:30px;text-align:center;
+       font-variant-numeric:tabular-nums}
+  #armFoot{display:flex;align-items:center;gap:10px}
+  .big{padding:9px 16px;font-size:11px;letter-spacing:.16em;border-radius:7px;font-family:inherit;
+       background:#ffb454;border:none;color:#101418;font-weight:700}
+  .big.alt{background:rgba(255,255,255,.1);color:#e8e2d6;border:1px solid rgba(255,255,255,.2)}
+  #overSub{font-size:10px;color:#8b9bb0;line-height:1.7;text-align:center}
+  #overSub b{color:#ffb454;font-weight:400}
+  .thr{display:flex;align-items:center;gap:5px;margin-top:4px}
+  .thr button{width:26px;height:22px;font-size:13px;line-height:1;border-radius:4px;padding:0;
+       background:rgba(255,255,255,.1);color:#e8e2d6;border:1px solid rgba(255,255,255,.18);font-family:inherit}
+  .thr button:active{background:#ffb454;color:#101418}
+  .chip.out{opacity:.34;text-decoration:line-through}
+  #over{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:20;
+        background:rgba(5,7,11,.72);flex-direction:column;gap:14px}
+  #over h1{margin:0;font-size:22px;letter-spacing:.3em;color:#ffb454}
+
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+
+<div id="top">
+  <div class="box">
+    <span class="tiny">CTRL</span>
+    <button class="vbtn" data-v="A">SPLIT PAD</button>
+    <button class="vbtn" data-v="B">SLIDERS</button>
+    <button class="vbtn" data-v="C">DIRECT</button>
+  </div>
+  <div class="box">
+    <span class="tiny" id="saveLbl">—</span>
+    <button class="vbtn" id="newBtn">NEW</button>
+    <button class="vbtn" id="mirrorBtn">⇄ HAND</button>
+    <button class="vbtn" id="fieldBtn">FIELD 4:3</button>
+    <button class="vbtn" id="fsBtn" title="fullscreen">⛶ FULL</button>
+  </div>
+</div>
+
+<div id="banner"><div id="bannerTxt">YOUR TURN</div></div>
+
+<div id="over">
+  <h1 id="overTxt">—</h1>
+  <div id="overSub"></div>
+  <div style="display:flex;gap:10px">
+    <button id="overArm" class="big">TO ARMORY</button>
+    <button id="overRematch" class="big alt">REMATCH</button>
+  </div>
+</div>
+
+<div id="armory">
+  <div id="armHead">
+    <span id="armTitle">ARMORY</span>
+    <span id="armCash">0 CR</span>
+    <span id="armRec"></span>
+    <span id="armLoad"></span>
+  </div>
+  <div id="armGrid"></div>
+  <div id="armFoot">
+    <button id="armFs" class="big alt">⛶ FULLSCREEN</button>
+    <button id="armStart" class="big">START MATCH</button>
+    <span class="tiny">buy before the match · ammo carries in · nothing is purchasable mid-match</span>
+  </div>
+</div>
+
+<div id="hud" class="left">
+  <div class="cluster">
+  <div class="box">
+    <div class="stack">
+    <div class="row">
+      <div class="stat"><span class="k">ANG</span><span class="v mono" id="angV">45</span><span class="u">°</span>
+        <span class="nudge"><button data-n="a+1">▲</button><button data-n="a-1">▼</button></span>
+      </div>
+      <div class="stat"><span class="k">PWR</span><span class="v mono" id="pwrV">520</span>
+        <span class="nudge"><button data-n="p+5">▲</button><button data-n="p-5">▼</button></span>
+      </div>
+      <div class="stat"><span class="k">WIND</span><span class="v wind mono" id="windV">0</span></div>
+      <div class="stat"><span class="k">HP</span><span class="v mono" id="hpV">100</span></div>
+      <div class="stat" id="chuteStat"><span class="k">CHUTE</span><span class="v mono" id="chuteV">—</span></div>
+    </div>
+    <div id="weapons"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="ctl">
+      <div id="pad">DRAG<br>X · ANGLE<br>Y · POWER</div>
+      <div id="bars">
+        <div>
+          <div class="trackLbl">ANGLE</div>
+          <div id="angleTrack"><div id="angleKnob"></div></div>
+        </div>
+        <div id="pwrWrap">
+          <div>
+            <div class="trackLbl">PWR</div>
+            <div id="pwrTrack"><div id="pwrFill"></div></div>
+          </div>
+          <div class="trackLbl" id="windLbl">WIND</div>
+        </div>
+      </div>
+      <div id="fireCol">
+        <button id="fire">FIRE</button>
+        <div class="trackLbl" id="hapticLbl">haptics ?</div>
+      </div>
+    </div>
+  </div>
+  </div>
+  <div class="box" id="logBox">
+    <div class="trackLbl">SHOT LOG</div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============================================================
+   SCORCHED · spike 001 — one-thumb touch controls
+   World is 700x250 logical px, fixed (a phone-landscape field, 2.8:1).
+   Integer angle/power/wind, fixed timestep.
+   Same inputs => identical trajectory, always.
+   ============================================================ */
+
+const HUD_BAND = 104;         // CSS height of the bottom control band (wide-field mode only;
+                              // measured against what the row actually contains: the weapon
+                              // chips wrap to two lines, so 86px clipped by 2)
+const HUD_W = 176;            // CSS width of the side control column (4:3 field mode)
+const GRAV = 0.06;            // px / tick^2
+const WIND_A = 0.00009;       // px / tick^2 per unit of wind. Because VMAX scales with sqrt(W),
+                              // wind drift stays a CONSTANT FRACTION of field width in both modes.
+// Two field shapes, kept as a comparison rather than an argument. 'faithful' reproduces the
+// original's proportions — 320x200 in a 4:3 display with non-square pixels, roughly 35
+// tank-widths across. 'wide' spends the phone's full landscape width; ~63 tank-widths, so
+// each tank is relatively smaller and the bracket matters more.
+const FIELDS = {
+  faithful: {w:400, h:300, hud:'column', label:'4:3'},
+  wide:     {w:700, h:250, hud:'band',   label:'WIDE'},
+};
+let W = 400, H = 300;
+let VMAX = 8;                 // recomputed by setField
+const TANKW = 11, TANKH = 7;
+// A fingerprint of the flight constants. A save carries it so that resuming an in-flight shot
+// under retuned physics is DETECTED and said out loud, rather than quietly landing somewhere else.
+function physTag(){ return GRAV + ',' + WIND_A + ',' + VMAX.toFixed(4); }
+const TICKS_PER_FRAME = 3;    // sim runs ~3x realtime: gap-sized shots
+
+const WEAPONS = [
+  {name:'BABY MSL', r:9,  dmg:22, price:0},                 // free and unlimited: you can always play
+  {name:'MISSILE',  r:15, dmg:40, price:60},
+  {name:'BABY NUKE',r:24, dmg:58, price:180},
+  {name:'NUKE',     r:38, dmg:85, price:520},
+  {name:'DIGGER',   r:11, dmg:0,  price:140, tunnels:true},
+  {name:'ROLLER',   r:30, dmg:60, price:260, rolls:true},
+];
+const SHIELD_PRICE = 200, SHIELD_ABSORB = 40;
+const START_CASH = 1000, WIN_BONUS = 400;
+// The 1991 accessory table: "Parachute $10,000, Bundle Size 8, Arms Level 2" — so 1,250 each,
+// an accessory rather than a weapon. Scaled to our economy against the Shield/armour ratio.
+const CHUTE_PRICE = 80, CHUTE_THRESH_DEFAULT = 5;
+
+/* ---------- dom ---------- */
+const $ = id => document.getElementById(id);
+const canvas = $('world'), ctx = canvas.getContext('2d');
+const terrainCanvas = document.createElement('canvas');
+terrainCanvas.width = W; terrainCanvas.height = H;
+const terrainCtx = terrainCanvas.getContext('2d');
+let terrainImg = terrainCtx.createImageData(W, H);
+
+/* ---------- state ---------- */
+const state = {
+  phase:'aim', turn:0, variant:'A', side:'left', field:'faithful',
+  wIdx:1, wind:0, round:0, msg:'YOUR TURN', log:[], ghost:null, fx:[], seed:0,
+  carves:[],          // every terrain-modifying op in order: the entire persistence story
+  cash:START_CASH, aiCash:START_CASH,   // two bankrolls, both fed by damage dealt
+  earned:0, aiEarned:0,                 // damage attributed this match, for the payout
+  ammo:[0,0,0,0,0,0], armor:0,          // bought in the armory, spent in the match
+  paid:false, payout:0, armory:true,    // a match settles exactly once
+  wins:0, losses:0,                     // the only progression there is
+  chutes:0, aiChutes:0,                 // accessories: consumed only when one actually opens
+  chuteArmed:true,                      // "By default, parachutes are deployed"
+  chuteThresh:CHUTE_THRESH_DEFAULT,     // deploy above this much predicted fall damage
+};
+let replaying = false;   // true while re-firing a saved shot: no ammo may be spent twice
+let recording = true; // false while replaying a restore, so replays do not re-record
+const player = {x:0, y:0, hp:100, angle:45, power:520, dead:false};
+const enemy  = {x:0, y:0, hp:100, angle:135, power:520, dead:false};
+let proj = null, mask = null, surf = null, terrainDirty = true;
+
+/* ---------- rng (seeded: a match is reproducible) ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+let rnd = mulberry32(1);
+
+/* ---------- terrain ---------- */
+/* ---------- terrain features: the generator stops being a heightmap ----------
+   The mask is already the single source of truth for collision (solid()) and rendering
+   (redrawTerrain paints it per-pixel), and carve() already punches 2D holes in it. So the only
+   thing that was still one-dimensional was the *generator*: it filled everything below a curve,
+   which by construction cannot produce an overhang. These stamps fix that and nothing else.
+
+   Features draw from their own RNG stream, so the heightmap and the wind keep the same values
+   for a given seed no matter how the feature code changes.
+*/
+let frnd = mulberry32(1);
+function setRect(x0,y0,x1,y1,v){
+  for(let y=Math.max(0,y0); y<=Math.min(H-1,y1); y++){
+    const row = y*W;
+    for(let x=Math.max(0,x0); x<=Math.min(W-1,x1); x++) mask[row+x] = v;
+  }
+}
+function setBlob(cx,cy,rx,ry,v){
+  for(let y=Math.max(0,Math.floor(cy-ry)); y<=Math.min(H-1,Math.ceil(cy+ry)); y++){
+    const dy = (y-cy)/ry, row = y*W;
+    for(let x=Math.max(0,Math.floor(cx-rx)); x<=Math.min(W-1,Math.ceil(cx+rx)); x++){
+      const dx = (x-cx)/rx;
+      if(dx*dx + dy*dy <= 1) mask[row+x] = v;
+    }
+  }
+}
+function syncSurf(){
+  // surf is DERIVED from the mask, never the other way round. With 2D terrain the topmost
+  // solid pixel is the only meaningful "surface", and tank placement and targeting have to
+  // agree with collision rather than with a curve that no longer describes the map.
+  for(let x=0;x<W;x++){ let y=0; while(y<H && !mask[y*W+x]) y++; surf[x] = y; }
+}
+// A tunnel driven through a hill, with a roof left hanging over it. Thin enough to shoot
+// through: the roof is cover, not armour.
+function stampArch(x0, x1){
+  const span = Math.max(1, x1 - x0), rise = 8 + Math.round(frnd()*10), roof = 4 + Math.round(frnd()*4);
+  for(let x=x0; x<=x1; x++){
+    const top = surf[x];
+    const h = Math.round(Math.sin(((x-x0)/span)*Math.PI) * rise);
+    setRect(x, top+roof, x, top+roof+h, 0);
+  }
+}
+// A chamber hollowed out of a mass, with rock left above and below it.
+function stampCave(cx){
+  const cy = surf[cx] + 22 + Math.round(frnd()*26);
+  setBlob(cx, cy, 10 + Math.round(frnd()*14), 7 + Math.round(frnd()*8), 0);
+}
+// A wall standing above the local ground: shoot around it or drop one in behind it.
+function stampTower(cx, hw){
+  const h = 20 + Math.round(frnd()*34);
+  let base = 0;
+  for(let x=cx-hw;x<=cx+hw;x++) base = Math.max(base, surf[Math.max(0,Math.min(W-1,x))]);
+  setRect(cx-hw, base-h, cx+hw, base-1, 1);
+}
+// A shelf: a plateau with hard vertical faces, so there is somewhere to sit behind.
+function stampShelf(x0, x1){
+  let top = 0;
+  for(let x=x0;x<=x1;x++) top += surf[x];
+  top = Math.round(top/(x1-x0+1)) - 6 - Math.round(frnd()*10);
+  setRect(x0, 0, x1, top-1, 0);
+  setRect(x0, top, x1, H-1, 1);
+}
+// Detached rock with air above and below. Rare, and the best occluder on the map.
+function stampIsland(cx){
+  const cy = surf[cx] - 26 - Math.round(frnd()*24);
+  if(cy < 14) return;
+  setBlob(cx, cy, 12 + Math.round(frnd()*16), 4 + Math.round(frnd()*6), 1);
+}
+function stampFeatures(){
+  // both tanks need level ground and a clear firing arc, so the ends of the field stay plain
+  const margin = Math.round(W*0.16), lo = margin, hi = W - margin;
+  if(hi - lo < 70) return;
+  const n = Math.max(2, Math.round(W/140));
+  for(let i=0;i<n;i++){
+    const cx = lo + Math.round(frnd()*(hi-lo-1));
+    const k = frnd();
+    if(k < 0.34)      stampArch(Math.max(lo, cx-26), Math.min(hi, cx+26));
+    else if(k < 0.60) stampCave(cx);
+    else if(k < 0.82) stampTower(cx, 3 + Math.round(frnd()*3));
+    else if(k < 0.94) stampShelf(Math.max(lo, cx-20), Math.min(hi, cx+20));
+    else if(cx > lo+45 && cx < hi-45) stampIsland(cx);
+  }
+}
+function genTerrain(seed){
+  rnd = mulberry32(seed);
+  surf = new Float32Array(W);
+  const anchor = new Uint8Array(W);
+  surf[0] = H*(0.45+rnd()*0.28); anchor[0] = 1;
+  surf[W-1] = H*(0.45+rnd()*0.28); anchor[W-1] = 1;
+  // segment-recursive displacement: every midpoint divides a *known* pair, so no
+  // index can be sampled before it exists. (Index-stepping breaks when W-1 is odd
+  // and silently leaves NaN columns.)
+  let segs = [[0, W-1]], rough = 1.0;
+  while(segs.length){
+    const next = [];
+    for(const seg of segs){
+      const a = seg[0], b = seg[1], m = (a+b)>>1;
+      if(m <= a || m >= b) continue;
+      surf[m] = (surf[a] + surf[b])/2 + (rnd()*2-1)*rough*H*0.19;
+      anchor[m] = 1;
+      next.push([a,m], [m,b]);
+    }
+    segs = next; rough *= 0.55;
+  }
+  // any column the halving skipped: interpolate between its known neighbours
+  let prev = 0;
+  for(let x=1;x<W;x++){
+    if(!anchor[x]) continue;
+    for(let k=prev+1;k<x;k++) surf[k] = surf[prev] + (surf[x]-surf[prev])*((k-prev)/(x-prev));
+    prev = x;
+  }
+  for(let x=0;x<W;x++) surf[x] = Math.max(H*0.22, Math.min(H*0.90, surf[x]));
+  const s2 = surf.slice();
+  for(let x=1;x<W-1;x++) surf[x] = (s2[x-1] + s2[x]*2 + s2[x+1])/4;
+  for(let x=0;x<W;x++) if(!Number.isFinite(surf[x])) surf[x] = H*0.75;
+  rasterize();
+  frnd = mulberry32((seed ^ 0x9e3779b9) >>> 0);   // separate stream: features never move the wind
+  stampFeatures();
+  syncSurf();                                     // surf now means "topmost solid", not "the curve"
+  terrainDirty = true;
+}
+function rasterize(){
+  mask = new Uint8Array(W*H);
+  for(let x=0;x<W;x++){
+    const y0 = Math.round(surf[x]);
+    for(let y=y0;y<H;y++) mask[y*W+x] = 1;
+    surf[x] = y0;
+  }
+  terrainDirty = true;
+}
+/* ---------- falling: tanks obey gravity even though dirt does not ----------
+   The manual, verbatim: "Tanks Fall ... If this is turned off, tanks will not fall when the
+   ground is shot out from beneath them. Not very realistic, but an option nonetheless."
+   Default ON. And on dirt: "Suspend Dirt 0-100, default 0 — a percentage chance, per shot,
+   that all the dirt on screen will fall." At the default, dirt does NOT fall: terrain left
+   hanging after an explosion stays hanging. That is the original's normal state, and it is
+   what makes arches and overhangs legitimate instead of a bug. So: dirt is rock, tanks are not.
+*/
+const FALL_SAFE = 10, FALL_PER_PX = 3;   // no damage under 10px, then 1 hp per 3px fallen
+const fallVis = {player:0, enemy:0};     // cosmetic descent only. Deliberately OUTSIDE `state`:
+                                         // anything not persisted must not live in a persisted object
+const chuteOn = {player:false, enemy:false};   // does this descent have a canopy over it
+
+function groundUnder(t){
+  const cx = Math.round(t.x), half = 5;
+  let g = 0, any = false;
+  for(let x = Math.max(0, cx-half); x <= Math.min(W-1, cx+half); x++){
+    if(surf[x] < H){ any = true; g = Math.max(g, surf[x]); }   // deepest support in the footprint
+  }
+  return any ? g : H;      // H means nothing under it anywhere: a bottomless hole
+}
+function dropTanks(){
+  for(const t of [player, enemy]){
+    if(t.dead) continue;
+    const g = groundUnder(t);
+    if(g <= t.y){ t.y = Math.min(t.y, g); continue; }   // dirt piled on top: the tank rides up
+    const fall = g - t.y;
+    t.y = g;
+    fallVis[t === player ? 'player' : 'enemy'] = fall;
+    state.fx.push({x: t.x, y: g, r: 7, t: 0, land: true});
+    if(!recording) continue;        // a replay must move the tank, never wound it again
+    if(g >= H){ t.hp = 0; continue; }   // dug clean through: a chute cushions a LANDING, and
+                                        // there is no landing at the bottom of the world
+    if(fall <= FALL_SAFE) continue;
+    // The manual: the onboard computer estimates the damage the fall will do, and "if your
+    // parachutes are deployed, and the safety threshold is less than the amount of damage you
+    // will take, the parachutes activate, and your tank takes no damage from the fall."
+    const isP = t === player, key = isP ? 'player' : 'enemy', predicted = Math.round((fall - FALL_SAFE)/FALL_PER_PX);
+    const owned = isP ? state.chutes : state.aiChutes;
+    const armed = isP ? state.chuteArmed : true;      // the computer's are always deployed
+    if(owned > 0 && armed && state.chuteThresh < predicted){
+      if(isP) state.chutes--; else state.aiChutes--;  // spent only when it actually opens
+      chuteOn[key] = true;                            // and it comes down gently
+    } else {
+      t.hp = Math.max(0, t.hp - predicted);
+    }
+    if(fall > 20) haptic();
+  }
+}
+
+function carve(cx, cy, r){
+  // A crater is a literal coordinate, not a re-simulation, so a save survives any retune of
+  // the ballistics. This is the whole reason persistence is cheap here.
+  // Quantize the crater centre first: the recorded op must be EXACTLY what gets rasterized,
+  // or a replay lands each crater up to half a pixel off and the terrain drifts silently.
+  cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
+  if(recording) state.carves.push([cx, cy, r]);
+  const x0 = Math.max(0, Math.floor(cx-r)), x1 = Math.min(W-1, Math.ceil(cx+r));
+  const y0 = Math.max(0, Math.floor(cy-r)), y1 = Math.min(H-1, Math.ceil(cy+r));
+  const r2 = r*r;
+  for(let y=y0;y<=y1;y++){
+    const dy = y-cy, row = y*W;
+    for(let x=x0;x<=x1;x++){
+      const dx = x-cx;
+      if(dx*dx+dy*dy <= r2) mask[row+x] = 0;
+    }
+  }
+  for(let x=x0;x<=x1;x++){ let y=0; while(y<H && !mask[y*W+x]) y++; surf[x]=y; }
+  dropTanks();    // the ground moved. Anything standing on it comes down with it.
+  terrainDirty = true;
+}
+function platform(cx, hw){
+  for(let x=0;x<W;x++) if(!Number.isFinite(surf[x])) surf[x] = H*0.75;
+  let top = H;
+  for(let x=cx-hw;x<=cx+hw;x++){ const c=Math.max(0,Math.min(W-1,x)); top=Math.min(top,surf[c]); }
+  for(let x=cx-hw;x<=cx+hw;x++){
+    if(x<0||x>=W) continue;
+    for(let y=0;y<top;y++) mask[y*W+x]=0;
+    for(let y=top;y<H;y++) mask[y*W+x]=1;
+    surf[x]=top;
+  }
+  terrainDirty = true;
+}
+function solid(x,y){
+  if(x<0||x>=W) return false;
+  if(y<0) return false;
+  if(y>=H) return true;
+  return mask[(y|0)*W + (x|0)] === 1;
+}
+function redrawTerrain(){
+  const d = terrainImg.data;
+  for(let y=0;y<H;y++){
+    const row = y*W, t = y/H;
+    const strata = (y % 9 === 0 || y % 9 === 1) ? -13 : (y % 9 === 5 ? 5 : 0);
+    for(let x=0;x<W;x++){
+      const i = (row+x)*4;
+      if(mask[row+x]){
+        // per-pixel dither + horizontal strata. The sin/cos version laid down a
+        // visible plaid across the whole field.
+        let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+        h = (h ^ (h >>> 13)) | 0;
+        const n = (h & 15) - 7;
+        d[i]   = 122 - 46*t + strata + n;
+        d[i+1] =  84 - 32*t + strata + n;
+        d[i+2] =  50 - 22*t + strata + n;
+        d[i+3] = 255;
+      } else { d[i+3] = 0; }
+    }
+  }
+  terrainCtx.putImageData(terrainImg, 0, 0);
+  terrainCtx.fillStyle = '#c99155';
+  for(let x=0;x<W;x++){ const y=surf[x]; if(y<H) terrainCtx.fillRect(x,y,1,1); }
+  terrainDirty = false;
+}
+
+/* ---------- match ---------- */
+function newRound(keepSeed){
+  if(!keepSeed) state.seed = (Math.random()*1e9)|0;
+  genTerrain(state.seed);
+  state.carves = [];
+  state.earned = 0; state.aiEarned = 0; state.paid = false; state.payout = 0;
+  state.wind = Math.round((rnd()*2-1)*100);
+  state.round++;
+  state.log = []; state.ghost = null; state.fx = []; proj = null;
+  player.hp = 100; enemy.hp = 100; player.dead = false; enemy.dead = false;
+  placeTanks();
+  ai.last = {x:null, angle:enemy.angle, power:620};
+  state.phase = 'aim'; state.msg = 'YOUR TURN';
+  $('over').style.display = 'none';
+  syncHud();
+  save('new round');
+}
+function resetTank(t, tx, ang){
+  tx = Math.max(22, Math.min(W-23, Math.round(tx)));
+  platform(tx, 9);
+  t.x = tx; t.y = surf[tx];
+  t.angle = ang; t.power = 520; t.hp = 100; t.dead = false;
+}
+// Your tank sits on your control side, so eyes and thumb agree about where "you" are.
+function placeTanks(){
+  const pLeft = state.side === 'left';   // your tank on your control side; nothing occludes now
+  resetTank(player, pLeft ? W*0.05 : W*0.95, pLeft ?  45 : 135);
+  resetTank(enemy,  pLeft ? W*0.95 : W*0.05, pLeft ? 135 :  45);
+}
+function tankCy(t){ return t.y - TANKH*0.55; }
+
+/* ---------- the armory ----------
+   The buy phase does not fit in a two-minute gap, so it lives outside the match. What you
+   carry in is stock: you commit to a loadout before you know the map or the wind, and every
+   shot you spend is a decision you already paid for. That is what makes the wind cost money. */
+function openArmory(){
+  state.armory = true;
+  $('armory').style.display = 'flex';
+  renderArmory(); syncHud(); save('armory');
+}
+function startMatch(){
+  state.armory = false;
+  $('armory').style.display = 'none';
+  newRound(false);
+}
+function buy(i, delta){
+  if(i === 0) return;                                  // the free shell is not for sale
+  const w = WEAPONS[i];
+  if(delta > 0){
+    if(state.cash < w.price) return;
+    state.cash -= w.price; state.ammo[i]++;
+  } else {
+    if((state.ammo[i] || 0) <= 0) return;
+    state.ammo[i]--; state.cash += w.price;             // full refund before the match
+  }
+  afterPurchase();
+}
+function buyShield(delta){
+  if(delta > 0){
+    if(state.cash < SHIELD_PRICE) return;
+    state.cash -= SHIELD_PRICE; state.armor += SHIELD_ABSORB;
+  } else {
+    if(state.armor < SHIELD_ABSORB) return;             // partial plating cannot be sold back
+    state.armor -= SHIELD_ABSORB; state.cash += SHIELD_PRICE;
+  }
+  afterPurchase();
+}
+function buyChute(delta){
+  if(delta > 0){
+    if(state.cash < CHUTE_PRICE) return;
+    state.cash -= CHUTE_PRICE; state.chutes++;
+  } else {
+    if(state.chutes <= 0) return;
+    state.chutes--; state.cash += CHUTE_PRICE;
+  }
+  afterPurchase();
+}
+function bumpThresh(d){
+  state.chuteThresh = clamp(state.chuteThresh + d*5, 1, 100);   // "any number between 1 and 100"
+  afterPurchase();
+}
+function afterPurchase(){ renderArmory(); buildWeapons(); syncHud(); save('purchase'); }
+function loadoutText(){
+  const parts = [];
+  WEAPONS.forEach((w,i) => { if(i > 0 && state.ammo[i]) parts.push(w.name + '×' + state.ammo[i]); });
+  if(state.armor) parts.push('ARMOR ' + state.armor);
+  return parts.length ? parts.join(' · ') : 'nothing but free shells';
+}
+function renderArmory(){
+  $('armCash').textContent = state.cash + ' CR';
+  $('armLoad').textContent = 'CARRIED IN: ' + loadoutText();
+  $('armRec').textContent = 'RECORD ' + state.wins + 'W · ' + state.losses + 'L' +
+                            '  ·  COMPUTER ' + state.aiCash + ' CR';
+  const grid = $('armGrid'); grid.innerHTML = '';
+  const card = (i, name, price, stats, owned, cls, extra) => {
+    const d = document.createElement('div');
+    d.className = 'card ' + cls;
+    d.innerHTML = '<div class="cn">' + name + '</div>' +
+                  '<div class="cp">' + (price ? price + ' CR' : 'FREE · UNLIMITED') + '</div>' +
+                  '<div class="cs">' + stats + '</div>' +
+                  '<div class="cq"><button data-buy="' + i + '">+</button>' +
+                  '<span>' + owned + '</span>' +
+                  '<button data-sell="' + i + '">−</button></div>' + (extra || '');
+    grid.appendChild(d);
+  };
+  WEAPONS.forEach((w,i) => {
+    const owned = i === 0 ? '∞' : (state.ammo[i] || 0);
+    const cls = i === 0 ? 'free' : (state.cash < w.price && !state.ammo[i] ? 'poor' : '');
+    card(i, w.name, w.price,
+      w.tunnels ? 'bores a tunnel into the ground · no direct damage — it hurts by dropping what stands on it'
+                : 'dmg ' + w.dmg + ' · blast ' + w.r + (w.rolls ? ' · rolls downhill' : ''),
+      owned, cls);
+  });
+  card('s', 'ARMOR', SHIELD_PRICE, 'absorbs ' + SHIELD_ABSORB + ' damage before your hull',
+       state.armor, state.cash < SHIELD_PRICE && state.armor === 0 ? 'poor' : '');
+  card('c', 'PARACHUTE', CHUTE_PRICE,
+       'saves the fall when it would cost more than ' + state.chuteThresh + ' hp · opens only for real falls',
+       state.chutes, state.cash < CHUTE_PRICE && state.chutes === 0 ? 'poor' : '',
+       '<div class="thr"><span class="cs">opens above</span>' +
+       '<button data-thr="-1">−</button><span class="cs">' + state.chuteThresh + ' hp</span>' +
+       '<button data-thr="1">+</button></div>');
+  grid.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => {
+    const v = b.dataset.buy; v === 's' ? buyShield(+1) : v === 'c' ? buyChute(+1) : buy(+v, +1);
+  });
+  grid.querySelectorAll('[data-sell]').forEach(b => b.onclick = () => {
+    const v = b.dataset.sell; v === 's' ? buyShield(-1) : v === 'c' ? buyChute(-1) : buy(+v, -1);
+  });
+  grid.querySelectorAll('[data-thr]').forEach(b => b.onclick = () => bumpThresh(+b.dataset.thr));
+  $('armStart').disabled = false;
+}
+
+/* ---------- persistence ----------
+   A match is reconstructible from three things: the terrain seed, the ordered list of
+   literal carve ops, and the tank/AI/log state. The 120,000-byte mask is never stored.
+   What it takes to survive a phone lock or a discarded background tab fits in ~1KB. */
+const SAVE_KEY = 'scorched.save.v1';
+const SAVE_VERSION = 8;   // v6: the terrain generator is no longer a heightmap, so an older
+                          // seed rebuilds a different map. Refuse them rather than load a
+                          // landscape that never existed.
+let saveOK = true;
+
+/* The invariant this whole file rests on: restore(snapshot()) must be an IDENTITY on the
+   settled match state. Every bug found here was a violation of it — a value recorded that
+   was not the value used (crater rounding), a field loaded back but not written to the live
+   state (the seed), a transform that lost a little on every pass (the tracer). So it is
+   checked rather than assumed. */
+const SETTLED = ['v','field','side','variant','seed','wind','round','wIdx',
+                 'tanks','ai','carves','log','ghost',
+                 'cash','aiCash','earned','aiEarned','ammo','armor','paid','payout','armory','wins','losses',
+                 'chutes','aiChutes','chuteArmed','chuteThresh'];
+let saveBad = [];
+function selfCheck(sv){
+  const now = snapshot();
+  return SETTLED.filter(k => JSON.stringify(now[k]) !== JSON.stringify(sv[k]));
+}
+
+function snapshot(){
+  return {
+    v: SAVE_VERSION, field: state.field, side: state.side, variant: state.variant,
+    seed: state.seed, wind: state.wind, round: state.round, wIdx: state.wIdx,
+    phase: state.phase, turn: state.turn,
+    // x and y are DERIVED (terrain + spawn side), never restored — so including them here
+    // makes the invariant assert that the terrain replay drops the tank where it really was.
+    // That is exactly the live-board-vs-replayed-board check that caught nothing today only
+    // because nothing had ever moved a tank.
+    tanks: [
+      {x:player.x, y:player.y, hp:player.hp, angle:player.angle, power:player.power, dead:player.dead},
+      {x:enemy.x,  y:enemy.y,  hp:enemy.hp,  angle:enemy.angle,  power:enemy.power,  dead:enemy.dead},
+    ],
+    ai: {x:ai.last.x, angle:ai.last.angle, power:ai.last.power},
+    cash: state.cash, aiCash: state.aiCash,
+    earned: state.earned, aiEarned: state.aiEarned,
+    ammo: state.ammo, armor: state.armor,
+    paid: state.paid, payout: state.payout, armory: state.armory,
+    wins: state.wins, losses: state.losses,
+    chutes: state.chutes, aiChutes: state.aiChutes,
+    chuteArmed: state.chuteArmed, chuteThresh: state.chuteThresh,
+    carves: state.carves,
+    log: state.log,
+    // rounded, never decimated. Rounding is idempotent so repeated round trips are stable;
+    // the 3:1 decimation that used to live here ate the tracer 113 -> 38 -> 13 -> 5 -> 2 -> 1
+    // across five resumes. Nothing in this function may lose information.
+    ghost: state.ghost ? state.ghost.map(p => [Math.round(p[0]), Math.round(p[1])]) : null,
+    // a shot in the air when the screen went away is still in the air when it comes back
+    // Position and velocity, not angle and power. A shot in the air is a state, not a recipe:
+    // re-deriving it from the muzzle re-simulates the flight that already happened, so retuning
+    // the physics silently rewrites history.
+    proj: (proj && state.phase === 'flying') ? {
+      owner: proj.owner, t: proj.t, wIdx: proj.wIdx,
+      x: proj.x, y: proj.y, vx: proj.vx, vy: proj.vy,
+    } : null,
+    phys: physTag(),
+  };
+}
+function save(why){
+  if(!saveOK) return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot()));
+    const d = new Date(), z = n => String(n).padStart(2,'0');
+    $('saveLbl').textContent = 'SAVED ' + z(d.getHours()) + ':' + z(d.getMinutes()) +
+                               ':' + z(d.getSeconds()) + (why ? ' · ' + why : '');
+  } catch(e){
+    saveOK = false;
+    $('saveLbl').textContent = 'SAVE BLOCKED';
+    $('saveLbl').style.color = '#ff8a6a';
+  }
+}
+function readSave(){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return null;
+    const sv = JSON.parse(raw);
+    if(!sv || !FIELDS[sv.field]) return null;
+    if(sv.v !== SAVE_VERSION){
+      state.msg = 'SAVE v' + sv.v + ' ≠ v' + SAVE_VERSION + ' — STARTING FRESH';
+      return null;
+    }
+    // Structural check, derived from snapshot() itself: a save written by a build with a
+    // different shape is refused outright. Without this, a field added to the snapshot but
+    // not to the loader loads as undefined — and undefined === undefined means the invariant
+    // check waves it through. Two schema changes already walked into that hole today.
+    const want = Object.keys(snapshot()).sort().join(',');
+    const got  = Object.keys(sv).sort().join(',');
+    if(want !== got){
+      state.msg = 'SAVE SHAPE MISMATCH — STARTING FRESH';
+      return null;
+    }
+    return sv;
+  } catch(e){ return null; }
+}
+function applySide(){
+  const hud = $('hud');
+  hud.classList.toggle('left',  state.side === 'left');
+  hud.classList.toggle('right', state.side === 'right');
+  resize(); chrome();
+}
+function restore(sv){
+  // Self-contained: apply the field shape here rather than trusting that setField() already
+  // ran at boot. Without this, `restore(snapshot())` is an identity only by accident of call
+  // order — which the invariant check caught as a false positive on 'field'.
+  if(state.field !== sv.field) setField(sv.field, false);
+  state.side = sv.side === 'right' ? 'right' : 'left';
+  state.variant = sv.variant || 'A';
+  applySide();
+  setVariant(state.variant);
+
+  state.seed = sv.seed;    // miss this and the NEXT save writes a wrong seed: a delayed fuse
+  genTerrain(sv.seed);
+  placeTanks();
+  recording = false;                       // replay craters without re-recording them
+  for(const c of (sv.carves || [])) carve(c[0], c[1], c[2]);
+  recording = true;
+  state.carves = (sv.carves || []).map(c => c.slice());
+
+  player.hp = sv.tanks[0].hp; player.angle = sv.tanks[0].angle;
+  player.power = sv.tanks[0].power; player.dead = sv.tanks[0].dead;
+  enemy.hp  = sv.tanks[1].hp;  enemy.angle  = sv.tanks[1].angle;
+  enemy.power = sv.tanks[1].power; enemy.dead = sv.tanks[1].dead;
+  ai.last = {x: sv.ai.x, angle: sv.ai.angle, power: sv.ai.power};
+  state.wind = sv.wind; state.round = sv.round; state.wIdx = sv.wIdx;
+  state.log = (sv.log || []).slice();
+  state.ghost = sv.ghost ? sv.ghost.map(p => [p[0], p[1]]) : null;
+  state.cash = sv.cash; state.aiCash = sv.aiCash;
+  state.earned = sv.earned; state.aiEarned = sv.aiEarned;
+  state.ammo = (sv.ammo || [0,0,0,0,0,0]).slice();
+  state.armor = sv.armor; state.paid = sv.paid;
+  state.payout = sv.payout; state.armory = !!sv.armory;
+  state.wins = sv.wins; state.losses = sv.losses;
+  state.chutes = sv.chutes; state.aiChutes = sv.aiChutes;
+  state.chuteArmed = !!sv.chuteArmed; state.chuteThresh = sv.chuteThresh;
+  state.fx = [];
+  buildWeapons();
+
+  // checked BEFORE the in-flight shot is allowed to change anything, so this is a pure
+  // comparison of what was loaded against what was reconstructed
+  saveBad = selfCheck(sv);
+
+  if(sv.proj){
+    // Resume from the EXACT saved kinematics. This used to call fire() and re-step p.t ticks,
+    // which re-simulated the flown part with whatever the constants were NOW: a 5% change to VMAX
+    // moved the landing 40px. The shell now continues from where it actually was. The flown trail
+    // restarts, which is the price of the outcome being reproducible rather than merely plausible.
+    const p = sv.proj;
+    state.wIdx = p.wIdx;
+    proj = { x:p.x, y:p.y, vx:p.vx, vy:p.vy, path:[[p.x, p.y]], owner:p.owner,
+             w:WEAPONS[p.wIdx], wIdx:p.wIdx, t:p.t };
+    state.phase = 'flying';
+    state.msg = p.owner === 'player' ? 'IN FLIGHT' : 'COMPUTER FIRES';
+    if(sv.phys && sv.phys !== physTag()) state.msg = 'PHYSICS CHANGED · SHOT MAY LAND DIFFERENTLY';
+  } else if(sv.phase === 'over' || player.dead || enemy.dead){
+    state.phase = 'over';
+    state.msg = enemy.dead && !player.dead ? 'COMPUTER DESTROYED'
+              : player.dead && !enemy.dead ? 'YOU WERE DESTROYED' : 'MUTUAL DESTRUCTION';
+    $('overTxt').textContent = state.msg;
+    $('over').style.display = 'flex';
+  } else if(sv.phase === 'wait'){
+    state.phase = 'wait'; state.turn = 1; setTimeout(aiTurn, 400);
+  } else {
+    state.phase = 'aim'; state.turn = 0;
+  }
+  // the armory is the top screen: if it is open, the match-over card must not sit under it.
+  // (Two modals open at once is not a visual glitch, it is a state bug waiting to be found.)
+  const showOver = state.phase === 'over' && !state.armory;
+  $('over').style.display = showOver ? 'flex' : 'none';
+  if(showOver) renderOver();
+  $('armory').style.display = state.armory ? 'flex' : 'none';
+  if(state.armory) renderArmory();
+  if(state.phase === 'aim') state.msg = 'RESUMED · ROUND ' + state.round;
+  if(saveBad.length){
+    // fail safe, loudly. A rejected save is recoverable; a silently corrupt board is not,
+    // and continuing to autosave would write the corruption forward.
+    saveOK = false;
+    $('saveLbl').textContent = 'SAVE REJECTED · ' + saveBad.join(',');
+    $('saveLbl').style.color = '#ff8a6a';
+  }
+  syncHud();
+  save('resumed');
+}
+
+
+/* ---------- firing & simulation ---------- */
+function fire(who){
+  const t = who === 'player' ? player : enemy;
+  if(t.dead) return;
+  const wi = who === 'player' ? state.wIdx : ai.wIdx;   // each side's own selection
+  if(who === 'player' && !replaying){
+    if(!hasAmmo(wi)){
+      // Out of ammo: say what ran out, then hand the player the free shell. The swap is IMMEDIATE
+      // and only the message lingers. A deferred swap would mutate wIdx *after* a save, and wIdx is
+      // in SETTLED — selfCheck would call it unsettled and stop autosaving to protect the board.
+      // The free shell is infinite, so there is always somewhere safe to land the player.
+      const ranOut = WEAPONS[wi].name;
+      state.wIdx = 0;
+      state.msg = 'OUT OF ' + ranOut + ' · SWITCHED TO BABY MSL';
+      buildWeapons();               // the chip highlight only moves on a rebuild, not on syncHud
+      syncHud(); save('auto-swap');
+      return;
+    }
+    if(wi > 0) state.ammo[wi]--;                     // the free shell is never spent
+  }
+  const rad = t.angle*Math.PI/180;
+  const v0 = t.power/1000*VMAX;
+  const px = t.x + Math.cos(rad)*10, py = tankCy(t) - Math.sin(rad)*10;
+  proj = { x:px, y:py, vx:Math.cos(rad)*v0, vy:-Math.sin(rad)*v0,
+           path:[[px,py]], owner:who, w:WEAPONS[wi], wIdx:wi, t:0 };
+  state.phase = 'flying';
+  state.msg = who === 'player' ? 'IN FLIGHT' : 'COMPUTER FIRES';
+  save('in flight');
+  syncHud();
+}
+function stepProj(){
+  if(!proj) return;
+  const p = proj;
+  p.t++;
+  p.vx += state.wind*WIND_A;
+  p.vy += GRAV;
+  p.x += p.vx; p.y += p.vy;
+  p.path.push([p.x,p.y]);
+  if(p.path.length > 900) p.path.shift();
+
+  for(const pair of [['player',player],['enemy',enemy]]){
+    const k = pair[0], t = pair[1];
+    if(t.dead || k === p.owner) continue;
+    const dx = p.x - t.x, dy = p.y - tankCy(t);
+    if(dx*dx + dy*dy < 34){
+      // "If they hit a tank, they fizzle." A Digger does nothing to a tank at all.
+      if(p.w.tunnels){ endShot(Math.round(p.x), 'fizzled'); return; }
+      explode(p.x, p.y); return;
+    }
+  }
+  if(p.y > H+4 || p.x < -1500 || p.x > W+1500){
+    // report the REAL landing, not a clamped one: a clamped overshoot is a flat
+    // signal and the bracketing maths downstream cannot tell 20px long from 1600px long
+    endShot(Math.round(p.x), 'off'); return;
+  }
+  if(p.y >= 0 && solid(p.x, p.y)){
+    if(p.w.tunnels){
+      // "They tunnel when they hit ground." The old version carved the last 22 points of the
+      // APPROACH PATH — but a projectile stops at first contact, so those points are the air it
+      // just flew through. It scraped the sky and dented the surface, and the flag was a lie.
+      // A digging warhead instead carries on into the rock along its heading, boring as it goes.
+      const len = Math.hypot(p.vx, p.vy) || 1, ux = p.vx/len, uy = p.vy/len;
+      const depth = Math.max(12, Math.round(p.w.r*2.6));
+      for(let d=1; d<=depth; d++) carve(p.x + ux*d, p.y + uy*d, p.w.r*0.9);
+      // each carve re-tests the ground under both tanks, so whatever stood over the bore falls
+      state.fx.push({x:p.x, y:p.y, r:8, t:0, dig:true});
+      endShot(Math.round(p.x), 'tunnelled');
+      return;
+    }
+    if(p.w.rolls){ roller(p); return; }
+    explode(p.x, p.y); return;
+  }
+}
+function roller(p){
+  let rx = Math.round(Math.max(1, Math.min(W-2, p.x)));
+  let ry = Math.round(surf[rx]);
+  const dir = p.vx >= 0 ? 1 : -1;
+  for(let s=0;s<220;s++){
+    const nx = rx + dir;
+    if(nx < 1 || nx > W-2) break;
+    for(const t of [player, enemy]){
+      if(t.dead) continue;
+      if(Math.abs(nx - t.x) < 6){ rx = nx; ry = surf[rx]; s = 999; break; }
+    }
+    if(s === 999) break;
+    const ny = Math.round(surf[nx]);
+    if(ny >= ry){ rx = nx; ry = ny; } else break;
+  }
+  explode(rx, ry - 2);
+}
+function explode(x, y){
+  const w = proj.w;
+  carve(x, y, w.r);
+  state.fx.push({x, y, r:w.r, t:0});
+  const R = w.r*1.7, owner = proj.owner;
+  for(const pair of [['player',player],['enemy',enemy]]){
+    const k = pair[0], t = pair[1];
+    if(t.dead) continue;
+    const dx = t.x - x, dy = tankCy(t) - y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    if(d >= R) continue;
+    let dmg = Math.round(w.dmg*(1 - d/R));
+    if(k === 'player' && state.armor > 0){          // armour eats damage before the hull does
+      const absorbed = Math.min(state.armor, dmg);
+      state.armor -= absorbed; dmg -= absorbed;
+    }
+    t.hp = Math.max(0, t.hp - dmg);
+    // the payout is damage dealt, so every point has to be attributed to whoever's shell did it
+    if(k === 'enemy'  && owner === 'player') state.earned   += dmg;
+    if(k === 'player' && owner === 'enemy')  state.aiEarned += dmg;
+  }
+  endShot(Math.round(x), 'impact');
+}
+function settle(){
+  if(state.paid) return;
+  const won = enemy.dead && !player.dead;
+  state.payout = Math.round(state.earned) + (won ? WIN_BONUS : 0);
+  state.cash += state.payout;
+  state.aiCash += Math.round(state.aiEarned) + (won ? 0 : WIN_BONUS);
+  if(won) state.wins++;
+  else if(player.dead && !enemy.dead) state.losses++;
+  state.paid = true;                      // a match settles exactly once, even across a reload
+}
+function renderOver(){
+  const won = enemy.dead && !player.dead;
+  $('overTxt').textContent = state.msg;
+  $('overSub').innerHTML =
+    'damage dealt <b>' + Math.round(state.earned) + '</b>' +
+    (won ? ' · win bonus <b>' + WIN_BONUS + '</b>' : '') +
+    '<br>payout <b>+' + state.payout + ' CR</b> · bank <b>' + state.cash + ' CR</b>' +
+    '<br>record <b>' + state.wins + 'W · ' + state.losses + 'L</b>';
+}
+function endShot(landX, how){
+  const who = proj.owner, w = proj.w;
+  const tgt = who === 'player' ? enemy : player;
+  state.log.unshift({
+    who: who === 'player' ? 'YOU' : 'CPU',
+    a: who === 'player' ? player.angle : enemy.angle,
+    p: who === 'player' ? player.power : enemy.power,
+    w: w.name, land: landX,
+    // signed along the direction of fire, so "+" always reads as long, whoever fired
+    err: landX === null ? null : (landX - tgt.x)*(who === 'player' ? 1 : -1),
+    // An off-field shot's "land" is where it left the world, not where it would have hit. Printing
+    // that as a pixel distance offers a bracketing number that cannot be bracketed.
+    off: how === 'off',
+  });
+  if(who === 'player') state.ghost = proj.path;
+  else ai.last.x = landX === null ? null : clamp(landX, -W, W*2);   // keep a wild miss bracketable
+  // the side column has room for 3 entries; the bottom band has room for 4
+  if(state.log.length > (FIELDS[state.field].hud === 'column' ? 3 : 4)) state.log.pop();
+  proj = null;
+  player.dead = player.hp <= 0;
+  enemy.dead = enemy.hp <= 0;
+  syncHud();
+
+  if(player.dead || enemy.dead){
+    state.phase = 'over';
+    state.msg = enemy.dead && !player.dead ? 'COMPUTER DESTROYED'
+              : player.dead && !enemy.dead ? 'YOU WERE DESTROYED' : 'MUTUAL DESTRUCTION';
+    settle();
+    renderOver();
+    $('over').style.display = 'flex';
+    save('over');
+    return;
+  }
+  if(who === 'player'){ state.phase = 'wait'; state.turn = 1; setTimeout(aiTurn, 520); }
+  else { state.phase = 'aim'; state.turn = 0; state.msg = 'YOUR TURN'; }
+  syncHud();
+  save('turn');
+}
+
+/* ---------- AI: brackets, remembers, jitters ---------- */
+const ai = { wIdx:0, last:{x:null, angle:135, power:620} };
+// The computer keeps its OWN weapon index. It used to write to state.wIdx, which is the player's
+// selection: the computer's turn silently replaced the player's loadout choice and the HUD went on
+// highlighting the old chip, so the interface and the fired weapon disagreed.
+// It cannot buy in bulk the way you can, so it spends per shot instead. Same economics,
+// opposite strategy: you get to plan, it gets to adapt.
+function aiPickWeapon(){
+  // it insures itself when it can afford to and still fight
+  if(state.aiChutes < 2 && state.aiCash >= CHUTE_PRICE * 3){ state.aiChutes++; state.aiCash -= CHUTE_PRICE; }
+  const wish = enemy.hp < 45 ? [3, 2, 5, 1, 0] : [1, 2, 0, 0, 0];
+  for(const i of wish){
+    if(state.aiCash >= WEAPONS[i].price){ state.aiCash -= WEAPONS[i].price; return i; }
+  }
+  return 0;
+}
+function aiTurn(){
+  // phase-gated: a setTimeout queued before a background/resume must not fire a stray turn
+  if(state.phase !== 'wait') return;
+  ai.wIdx = aiPickWeapon();
+
+  const dir = Math.sign(player.x - enemy.x) || 1;   // -1: the computer fires leftward
+  let p, a = ai.last.angle;
+  if(ai.last.x === null){
+    p = 430 + Math.abs(player.x - enemy.x)*0.30;    // deliberately crude ranging shot
+  } else {
+    // correct in RANGE space, not power space: range ~ power^2, so a linear power
+    // step oscillates instead of converging. sens = d(range)/d(power) in px per unit.
+    const errAlong = (ai.last.x - player.x)*dir;    // +ve = long
+    const sens = Math.max(0.45, 2*VMAX*VMAX/(GRAV*1e6)*ai.last.power);
+    p = ai.last.power - errAlong/sens + (Math.random()*2-1)*18;
+  }
+  if(p > 1000){ p = 1000; a = a === 135 ? 45 : 135; }
+  if(p < 150){ p = 150; a = a === 135 ? 45 : 135; }
+  ai.last.angle = a;
+  ai.last.angle = a; ai.last.power = Math.round(p);
+  enemy.angle = a; enemy.power = Math.round(p);
+  fire('enemy');
+}
+
+/* ---------- effects ---------- */
+function updateFx(){
+  for(const f of state.fx) f.t++;
+  state.fx = state.fx.filter(f => f.t < 26);
+}
+
+/* ---------- render ---------- */
+let cw = 0, ch = 0, dpr = 1, fit = 1, ox = 0, oy = 0;
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const w = window.innerWidth, h = window.innerHeight;
+  // a backgrounded tab can report 0x0 or stale values; keep the last good layout rather than
+  // collapsing the field to nothing
+  if(!(w > 0) || !(h > 0)) return;
+  cw = w; ch = h;
+  canvas.width = Math.floor(cw*dpr); canvas.height = Math.floor(ch*dpr);
+  canvas.style.width = cw+'px'; canvas.style.height = ch+'px';
+  const col = FIELDS[state.field].hud === 'column';
+  const availW = cw - (col ? HUD_W : 0);
+  const availH = ch - (col ? 0 : HUD_BAND);
+  fit = Math.min(availW/W, availH/H);
+  ox = (col && state.side === 'left' ? HUD_W : 0) + (availW - W*fit)/2;
+  oy = (availH - H*fit)/2;
+}
+// swap the field shape (and everything that must scale with it)
+function setField(mode, fresh){
+  state.field = mode;
+  const f = FIELDS[mode];
+  W = f.w; H = f.h;
+  VMAX = Math.sqrt(0.9*W*GRAV)/0.7;   // a 45deg shot at power 700 spans 90% of the field
+  terrainCanvas.width = W; terrainCanvas.height = H;
+  terrainImg = terrainCtx.createImageData(W, H);
+  $('hud').classList.toggle('column', f.hud === 'column');
+  $('fieldBtn').textContent = 'FIELD ' + f.label;
+  chrome();
+  resize();
+  if(fresh !== false) newRound(false);   // a resume must not clobber the save it is about to read
+}
+// keep the top button bar clear of the side column when there is one
+function chrome(){
+  const col = FIELDS[state.field].hud === 'column';
+  $('top').classList.toggle('padleft',  col && state.side === 'left');
+  $('top').classList.toggle('padright', col && state.side === 'right');
+}
+function render(){
+  // Scale by dpr, not identity. The backing store is canvas.width = cw*dpr device pixels,
+  // so an identity-space fill of (0,0,cw,fieldH) repaints only the top-left 1/dpr x 1/dpr of
+  // the canvas: the sky goes unpainted, accumulates every past frame, and bright objects
+  // ghost across it. The world below is drawn at dpr*fit, which is why the terrain kept
+  // looking correct and hid the cause. Both layers now live in the same dpr space.
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const col = FIELDS[state.field].hud === 'column';
+  const fieldH = col ? ch : ch - HUD_BAND;
+  const sky = ctx.createLinearGradient(0,0,0,fieldH);
+  sky.addColorStop(0, '#060a12'); sky.addColorStop(0.65, '#12202f'); sky.addColorStop(1, '#2a1c16');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,cw,fieldH);
+  // the controls sit OUTSIDE the field: flat, so they never compete with it
+  ctx.fillStyle = '#05070b';
+  if(col) ctx.fillRect(state.side === 'left' ? 0 : cw - HUD_W, 0, HUD_W, ch);
+  else    ctx.fillRect(0, ch - HUD_BAND, cw, HUD_BAND);
+
+  if(terrainDirty) redrawTerrain();
+  ctx.setTransform(dpr*fit, 0, 0, dpr*fit, dpr*ox, dpr*oy);
+
+  // wind banner in the world itself — the field carries its own instrument
+  drawWindFlag();
+
+  if(state.ghost) drawPath(state.ghost, 'rgba(232,226,214,.16)', 1);
+  // Crisp, not smoothed. Terrain is 400x300 logical upscaled ~1.9x (more on a dpr=3 phone), and
+  // bilinear filtering blended the 1px #c99155 surface line into the sky on whichever destination
+  // pixels straddled the source boundary: a grey dashed fringe on 20% of columns, and a dither
+  // arriving 26% weaker than authored (sigma 5.9 vs 7.4). Off restores the exact authored colour
+  // and gives chunky pixels — which is the whole point of a mode called 'faithful'. This is the
+  // only drawImage in the file, so nothing else is touched.
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(terrainCanvas, 0, 0);
+  drawTank(player, '#7fd4ff');
+  drawTank(enemy, '#ff5a3c');
+  if(proj) drawPath(proj.path, 'rgba(255,180,84,.55)', 1);
+  if(proj){ ctx.fillStyle = '#fff2d8'; ctx.beginPath(); ctx.arc(proj.x, proj.y, 2.2, 0, 6.3); ctx.fill(); }
+  drawFx();
+  if(proj && proj.owner === 'player') drawAimGuide();
+}
+function drawWindFlag(){
+  const n = Math.abs(state.wind), cx = W/2, y = 42;   // clear of the top control bar
+  ctx.save();
+  ctx.fillStyle = 'rgba(232,226,214,.5)';
+  ctx.font = '9px ui-monospace,monospace'; ctx.textAlign = 'center';
+  ctx.fillText('WIND', cx, y-5);
+  ctx.fillStyle = n === 0 ? 'rgba(232,226,214,.55)' : '#7fd4ff';
+  ctx.fillText(String(n), cx, y+11);
+  if(n > 0){
+    const dir = state.wind > 0 ? 1 : -1;
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1.4;
+    for(let i=0;i<3;i++){
+      const o = i*9, len = 10 + i*4;
+      ctx.globalAlpha = 0.9 - i*0.22;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir*(14+o), y+3);
+      ctx.lineTo(cx + dir*(14+o+len), y+3);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+function drawTank(t, color){
+  const key = t === player ? 'player' : 'enemy';
+  const vis = t.y - fallVis[key];
+  if(t.dead){
+    ctx.fillStyle = 'rgba(60,40,34,.9)';
+    ctx.fillRect(t.x-6, vis - 4, 12, 4);
+    return;
+  }
+  const x = t.x - TANKW/2, y = vis - TANKH;
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, TANKW, TANKH);
+  ctx.fillStyle = 'rgba(0,0,0,.42)';
+  ctx.fillRect(x, y+TANKH-2, TANKW, 2);
+  if(chuteOn[key] && fallVis[key] > 1){                 // canopy overhead while descending
+    const cy = vis - TANKH - 11;
+    ctx.strokeStyle = 'rgba(232,226,214,.9)'; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.arc(t.x, cy, 9, Math.PI, 0); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(t.x-9, cy); ctx.lineTo(t.x-4, vis - TANKH);
+    ctx.moveTo(t.x+9, cy); ctx.lineTo(t.x+4, vis - TANKH);
+    ctx.stroke();
+  }
+  const rad = t.angle*Math.PI/180, bx = t.x, by = vis - TANKH*0.55;
+  ctx.strokeStyle = '#fff2d8'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(bx,by);
+  ctx.lineTo(bx + Math.cos(rad)*10, by - Math.sin(rad)*10); ctx.stroke();
+  // hp
+  const w = 18, hx = t.x - w/2, hy = y - 6;
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(hx, hy, w, 2.5);
+  ctx.fillStyle = t.hp > 55 ? '#8ce37f' : t.hp > 25 ? '#ffb454' : '#ff5a3c';
+  ctx.fillRect(hx, hy, w*t.hp/100, 2.5);
+}
+function drawAimGuide(){
+  const rad = player.angle*Math.PI/180, bx = player.x, by = tankCy(player);
+  ctx.save();
+  ctx.setLineDash([2,4]); ctx.strokeStyle = 'rgba(127,212,255,.35)'; ctx.lineWidth = 1;
+  const len = 14 + player.power/1000*46;
+  ctx.beginPath(); ctx.moveTo(bx,by);
+  ctx.lineTo(bx + Math.cos(rad)*len, by - Math.sin(rad)*len); ctx.stroke();
+  ctx.restore();
+}
+function drawPath(path, color, lw){
+  if(path.length < 2) return;
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+  for(let i=1;i<path.length;i++) ctx.lineTo(path[i][0], path[i][1]);
+  ctx.stroke();
+}
+function drawFx(){
+  for(const f of state.fx){
+    const p = f.t/26;
+    if(f.land){                                  // a tank slamming down: dust spreads sideways
+      ctx.strokeStyle = `rgba(201,145,85,${0.7*(1-p)})`; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(f.x - 9*(1+2.4*p), f.y); ctx.lineTo(f.x + 9*(1+2.4*p), f.y);
+      ctx.stroke();
+      continue;
+    }
+    if(f.dig){
+      ctx.strokeStyle = `rgba(201,145,85,${0.8*(1-p)})`; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(f.x, f.y, 10*p + 2, 0, 6.3); ctx.stroke();
+      continue;
+    }
+    ctx.strokeStyle = `rgba(255,150,70,${0.9*(1-p)})`;
+    ctx.lineWidth = 2.4*(1-p)+0.6;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(0.35 + 1.15*p), 0, 6.3); ctx.stroke();
+    ctx.fillStyle = `rgba(255,220,150,${0.5*(1-p)})`;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r*0.55*(1-p), 0, 6.3); ctx.fill();
+  }
+}
+
+/* ---------- input: variant A, split pad ---------- */
+const ANG_PX = 1.2, PWR_PX = 1.6;
+let drag = null, lastDetentA = -1, lastDetentP = -1;
+const HAS_VIB = typeof navigator.vibrate === 'function';
+function haptic(){
+  if(!HAS_VIB) return;
+  if(Math.floor(player.angle/10) !== lastDetentA){ lastDetentA = Math.floor(player.angle/10); navigator.vibrate(4); }
+  else if(Math.floor(player.power/50) !== lastDetentP){ lastDetentP = Math.floor(player.power/50); navigator.vibrate(4); }
+}
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function hasAmmo(i){ return i === 0 || (state.ammo[i] || 0) > 0; }
+function canAim(){ return state.phase === 'aim' && !player.dead && !state.armory; }
+
+const pad = $('pad');
+pad.addEventListener('pointerdown', e => {
+  if(!canAim()) return;
+  try { pad.setPointerCapture(e.pointerId); } catch(_) {}   // throws for synthetic/unknown pointers
+  drag = {x:e.clientX, y:e.clientY, a:player.angle, p:player.power};
+  pad.classList.add('drag'); lastDetentA = -1; lastDetentP = -1;
+});
+pad.addEventListener('pointermove', e => {
+  if(!drag || !canAim()) return;
+  player.angle = clamp(Math.round(drag.a + (e.clientX - drag.x)/ANG_PX), 1, 180);
+  player.power = clamp(Math.round(drag.p - (e.clientY - drag.y)/PWR_PX), 0, 1000);
+  haptic(); syncHud();
+});
+const padUp = () => { drag = null; pad.classList.remove('drag'); };
+pad.addEventListener('pointerup', padUp);
+pad.addEventListener('pointercancel', padUp);
+
+/* ---------- input: variant B, sliders ---------- */
+const angleTrack = $('angleTrack'), pwrTrack = $('pwrTrack');
+let sdrag = null;
+angleTrack.addEventListener('pointerdown', e => {
+  if(!canAim()) return;
+  try { angleTrack.setPointerCapture(e.pointerId); } catch(_) {}
+  sdrag = 'a'; setAngleFromX(e.clientX);
+});
+angleTrack.addEventListener('pointermove', e => { if(sdrag === 'a') setAngleFromX(e.clientX); });
+function setAngleFromX(clientX){
+  const r = angleTrack.getBoundingClientRect();
+  player.angle = clamp(Math.round((clientX - r.left)/r.width*179) + 1, 1, 180);
+  haptic(); syncHud();
+}
+pwrTrack.addEventListener('pointerdown', e => {
+  if(!canAim()) return;
+  try { pwrTrack.setPointerCapture(e.pointerId); } catch(_) {}
+  sdrag = 'p'; setPowerFromY(e.clientY);
+});
+pwrTrack.addEventListener('pointermove', e => { if(sdrag === 'p') setPowerFromY(e.clientY); });
+function setPowerFromY(clientY){
+  const r = pwrTrack.getBoundingClientRect();
+  player.power = clamp(Math.round((1 - (clientY - r.top)/r.height)*1000), 0, 1000);
+  haptic(); syncHud();
+}
+['pointerup','pointercancel'].forEach(ev => document.addEventListener(ev, () => { sdrag = null; }));
+
+/* ---------- input: variant C, direct aim ---------- */
+let cdrag = false;
+canvas.addEventListener('pointerdown', e => {
+  if(state.variant !== 'C' || !canAim()) return;
+  try { canvas.setPointerCapture(e.pointerId); } catch(_) {}
+  cdrag = true; aimAt(e.clientX, e.clientY);
+});
+canvas.addEventListener('pointermove', e => { if(cdrag && state.variant === 'C') aimAt(e.clientX, e.clientY); });
+['pointerup','pointercancel'].forEach(ev => canvas.addEventListener(ev, () => { cdrag = false; }));
+function aimAt(clientX, clientY){
+  const wx = (clientX - ox)/fit, wy = (clientY - oy)/fit;
+  const dx = wx - player.x, dy = tankCy(player) - wy;
+  let a = Math.atan2(dy, dx)*180/Math.PI;
+  player.angle = clamp(Math.round(a), 1, 180);
+  haptic(); syncHud();
+}
+
+/* ---------- nudges, weapons, fire, chrome ---------- */
+document.querySelectorAll('[data-n]').forEach(b => b.addEventListener('click', () => {
+  if(!canAim()) return;
+  const n = b.dataset.n;
+  if(n === 'a+1') player.angle = clamp(player.angle+1, 1, 180);
+  if(n === 'a-1') player.angle = clamp(player.angle-1, 1, 180);
+  if(n === 'p+5') player.power = clamp(player.power+5, 0, 1000);
+  if(n === 'p-5') player.power = clamp(player.power-5, 0, 1000);
+  syncHud();
+}));
+function buildWeapons(){
+  const box = $('weapons'); box.innerHTML = '';
+  WEAPONS.forEach((w,i) => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (i === state.wIdx ? ' on' : '') + (hasAmmo(i) ? '' : ' out');
+    b.textContent = w.name + (i === 0 ? '' : ' ×' + (state.ammo[i] || 0));
+    b.addEventListener('click', () => { if(canAim() && hasAmmo(i)){ state.wIdx = i; buildWeapons(); } });
+    box.appendChild(b);
+  });
+}
+$('fire').addEventListener('click', () => { if(canAim()) fire('player'); });
+
+document.querySelectorAll('[data-v]').forEach(b => b.addEventListener('click', () => setVariant(b.dataset.v)));
+function setVariant(v){
+  state.variant = v;
+  document.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $('pad').style.display = v === 'A' ? 'flex' : 'none';
+  $('bars').style.display = v === 'A' ? 'none' : 'flex';
+  syncHud();
+}
+$('mirrorBtn').addEventListener('click', () => {
+  state.side = state.side === 'left' ? 'right' : 'left';
+  applySide();
+  // re-seat the tanks only if nobody has committed a shot yet this round
+  if(state.phase === 'aim' && state.log.length === 0) placeTanks();
+  syncHud();
+  save('mirrored');
+});
+/* ---------- fullscreen ----------
+   The old button only ever ENTERED fullscreen: pressed while already fullscreen it skipped the
+   request and cheerfully reported "fullscreen ✓" while doing nothing, and there was no way back out
+   except the browser's own escape. It is now a toggle, and it says which platform it is on.
+   iPhone Safari has no requestFullscreen at all (only on <video>), so the honest move is to name
+   the actual remedy — Add to Home Screen gives a standalone window with no chrome, which is the
+   only real fullscreen iOS offers. */
+const FS_API = typeof document.documentElement.requestFullscreen === 'function';
+const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) ||
+                   navigator.standalone === true;
+function fsLabel(){
+  const on = !!document.fullscreenElement;
+  if(!FS_API){
+    $('fsBtn').textContent = IS_IOS ? '⛶ HOME' : '⛶ N/A';
+    $('armFs').textContent = STANDALONE ? '⛶ STANDALONE'
+                          : IS_IOS ? '⛶ ADD TO HOME SCREEN' : '⛶ NOT SUPPORTED HERE';
+  } else {
+    $('fsBtn').textContent = on ? '⛶ EXIT' : '⛶ FULL';
+    $('armFs').textContent = on ? '⛶ EXIT FULLSCREEN' : '⛶ FULLSCREEN';
+  }
+}
+async function toggleFullscreen(){
+  if(!FS_API){
+    state.msg = STANDALONE ? 'ALREADY RUNNING STANDALONE'
+              : IS_IOS ? 'iPHONE: SHARE ▸ ADD TO HOME SCREEN FOR FULLSCREEN'
+              : 'THIS BROWSER HAS NO FULLSCREEN';
+    syncHud(); return;
+  }
+  try {
+    if(document.fullscreenElement){
+      await document.exitFullscreen();
+      state.msg = 'BACK TO THE BROWSER';
+    } else {
+      await document.documentElement.requestFullscreen();
+      state.msg = 'FULLSCREEN ON';
+      // the orientation lock only takes effect inside fullscreen, and is released on exit
+      if(screen.orientation && screen.orientation.lock){
+        try { await screen.orientation.lock('landscape'); } catch(e){ /* unsupported: fine */ }
+      }
+    }
+  } catch(err){
+    state.msg = 'FULLSCREEN BLOCKED BY THE BROWSER';
+  }
+  fsLabel(); syncHud();
+}
+$('fsBtn').addEventListener('click', toggleFullscreen);
+$('armFs').addEventListener('click', toggleFullscreen);
+// Entering or leaving fullscreen resizes the viewport, and some browsers fire no resize at all for
+// it. Rather than trust an event that may not come, re-measure explicitly — same reasoning as the
+// visibilitychange handler, which exists because a rotation while hidden never reaches us.
+document.addEventListener('fullscreenchange', () => { fsLabel(); resize(); render(); syncHud(); });
+fsLabel();
+// #overBtn was replaced by #overArm / #overRematch, wired in boot
+
+/* ---------- hud sync ---------- */
+function syncHud(){
+  // "if you have no parachutes, both the number and the icon will be gray"
+  $('chuteStat').classList.toggle('on', state.chutes > 0 && state.chuteArmed);
+  $('chuteStat').classList.toggle('none', state.chutes === 0);
+  $('chuteV').textContent = state.chutes === 0 ? 'NONE'
+                          : '×' + state.chutes + (state.chuteArmed ? '' : ' PASS');
+  $('angV').textContent = player.angle;
+  $('pwrV').textContent = player.power;
+  $('windV').textContent = (state.wind > 0 ? '▶ ' : state.wind < 0 ? '◀ ' : '· ') + Math.abs(state.wind);
+  $('hpV').textContent = player.hp;
+  $('fire').disabled = !canAim();
+  $('bannerTxt').textContent = canAim() ? (state.msg === 'YOUR TURN' ? `ROUND ${state.round} · YOUR TURN` : state.msg) : state.msg;
+  $('hapticLbl').textContent = HAS_VIB ? 'detents 10°/50' : 'NO HAPTICS';
+  $('hapticLbl').style.color = HAS_VIB ? '#6d7c90' : '#ff8a6a';
+  $('angleKnob').style.left = ((player.angle-1)/179*100) + '%';
+  $('pwrFill').style.height = (player.power/10) + '%';
+  $('windLbl').textContent = 'WIND ' + (state.wind > 0 ? '+' : '') + state.wind;
+  $('log').innerHTML = state.log.map(e => {
+    const err = e.err === null ? '—'
+              : e.off ? 'OFF · ' + (e.err > 0 ? 'LONG' : 'SHORT')
+              : (e.err > 0 ? '+' : '') + e.err + 'px';
+    return `<div><b>${e.who}</b> ${e.a}° / ${e.p} · ${e.w} · ${err}</div>`;
+  }).join('') || '<div>nothing yet · bracket the miss</div>';
+}
+
+/* ---------- main loop ---------- */
+let last = performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  last = now;
+  if(state.phase === 'flying'){
+    for(let i=0;i<TICKS_PER_FRAME && state.phase === 'flying';i++) stepProj();
+  }
+  updateFx();
+  for(const k of ['player','enemy']){
+    if(fallVis[k] === 0) continue;
+    fallVis[k] = Math.max(0, fallVis[k] - (chuteOn[k] ? 3 : 7));   // under canopy: a slow drop
+    if(fallVis[k] === 0) chuteOn[k] = false;
+  }
+  render();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+// A phone lock, an app switch, a discarded background tab. pagehide + visibilitychange are
+// the hooks that actually fire on mobile; beforeunload is not dependable there.
+window.addEventListener('pagehide', () => save('backgrounded'));
+window.addEventListener('blur',     () => save('lost focus'));
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden){ save('hidden'); return; }
+  // Rotate the phone while it is locked and no resize or orientationchange ever arrives. Coming
+  // back to visible is the only reliable moment to re-measure.
+  resize(); render();
+});
+
+/* ---------- boot ---------- */
+buildWeapons();
+setVariant('A');
+const SAVED = readSave();                 // read before setField: it tells us which shape
+setField(SAVED ? SAVED.field : 'faithful', !SAVED);
+if(SAVED) restore(SAVED);
+$('newBtn').addEventListener('click', () => { newRound(false); openArmory(); });
+$('armStart').addEventListener('click', startMatch);
+$('chuteStat').addEventListener('click', () => {
+  if(state.chutes <= 0) return;              // "if you have no parachutes, you may not change the state"
+  state.chuteArmed = !state.chuteArmed;
+  syncHud(); save('parachute state');
+});
+$('overArm').addEventListener('click', () => { $('over').style.display = 'none'; openArmory(); });
+$('overRematch').addEventListener('click', () => { $('over').style.display = 'none'; newRound(false); });
+if(!SAVED) openArmory();
+$('fieldBtn').addEventListener('click', () => {
+  setField(state.field === 'faithful' ? 'wide' : 'faithful');
+});
+$('hapticLbl').textContent = HAS_VIB ? 'detents 10°/50' : 'NO HAPTICS';
+requestAnimationFrame(frame);
+
+// Expose for scripted verification.
+// Bare lexical identifiers DO resolve from the verification console (W, VMAX, WEAPONS, carve all
+// read fine on a loaded page); an earlier note here claiming otherwise was a misdiagnosis of an
+// about:blank page. This hook exists for two reasons that stand on their own: `window.*` is
+// reachable regardless of which world the eval lands in, and the accessors below let a test WRITE
+// lexical state (`set VMAX`), which a bare identifier cannot do to a const.
+window.__spike = {
+  state, player, enemy, ai, aiTurn, fire, stepProj, newRound, aimAt, WEAPONS,
+  get proj(){return proj;}, set proj(v){proj = v;},
+  get mask(){return mask;}, get surf(){return surf;},
+  get W(){return W;}, get H(){return H;},
+  get VMAX(){return VMAX;}, set VMAX(v){VMAX = v;},
+  GRAV, WIND_A, TANKW, TANKH, HUD_W, HUD_BAND,
+  get cw(){return cw;}, get ch(){return ch;}, get fit(){return fit;},
+  get ox(){return ox;}, get oy(){return oy;},
+  carve, save, restore, selfCheck, snapshot, readSave, solid, dropTanks, groundUnder, buildWeapons,
+  genTerrain, placeTanks, resize, render, syncHud, redrawTerrain, setField,
+  buy, buyShield, buyChute, bumpThresh, startMatch, openArmory, renderArmory, aiPickWeapon, roller,
+  chuteOn, fallVis, get recording(){return recording;}, set recording(v){recording = v;},
+};
+</script>
+</body>
+</html>

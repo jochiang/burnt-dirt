@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>bug repro: fixed vs buggy</title>
+<style>
+ body{margin:0;background:#0b0e13;color:#8b9bb0;font:12px ui-monospace,monospace;padding:16px;
+      display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+ figure{margin:0} figcaption{margin-bottom:6px;letter-spacing:.06em}
+ iframe{border:1px solid #2a3038;border-radius:10px;display:block;background:#000}
+ .f{color:#8ce37f} .b{color:#ff5a3c}
+</style></head>
+<body>
+  <figure><figcaption class="f">index.html — FIXED</figcaption>
+    <iframe id="fixed" src="/index.html" width="844" height="390"></iframe></figure>
+  <figure><figcaption class="b">repro.html — BUG 1 + BUG 2 REINTRODUCED</figcaption>
+    <iframe id="buggy" src="/repro.html" width="844" height="390"></iframe></figure>
+</body></html>

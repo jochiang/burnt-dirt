@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>armory · device harness</title>
+<style>
+ body{margin:0;background:#0b0e13;color:#8b9bb0;font:12px ui-monospace,monospace;padding:16px;
+      display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+ figure{margin:0} figcaption{margin-bottom:6px;letter-spacing:.06em}
+ iframe{border:1px solid #2a3038;border-radius:10px;display:block;background:#000}
+</style></head>
+<body>
+  <figure><figcaption>iPhone 14 Pro · landscape · 844×390</figcaption>
+    <iframe id="a" src="/index.html?cb=armv2" width="844" height="390"></iframe></figure>
+  <figure><figcaption>Pixel 7 · landscape · 915×412</figcaption>
+    <iframe id="b" src="/index.html?cb=armv2" width="915" height="412"></iframe></figure>
+<script>
+  // stock the shop in each frame so the screenshot shows the economy doing something.
+  // Both get an identical bankroll first, because they share one localStorage.
+  function stock(fr){
+    const w = fr.contentWindow, S = w.__spike;
+    if(!S || typeof w.buy !== 'function') return;
+    // Render at a REAL phone pixel ratio. This browser runs at dpr=1, and at dpr=1 an
+    // identity-space sky fill happens to cover the whole canvas — so dpr=1 silently hides
+    // every backing-store scaling bug. Any harness that claims to show a phone must lie
+    // about the pixel ratio the same way a phone does.
+    try {
+      Object.defineProperty(w, 'devicePixelRatio', { value:3, configurable:true });
+      w.resize();
+    } catch(e){ console.warn('dpr override failed', e); }
+    S.state.cash = 1000;
+    S.state.ammo = [0,0,0,0,0,0];
+    S.state.armor = 0;
+    w.buy(1,+1); w.buy(1,+1); w.buy(2,+1); w.buy(4,+1); w.buyShield(+1);
+    S.state.wins = 3; S.state.losses = 1;
+    w.renderArmory();
+  }
+  document.querySelectorAll('iframe').forEach(fr => {
+    fr.addEventListener('load', () => setTimeout(() => stock(fr), 80));
+  });
+  window.__stock = () => document.querySelectorAll('iframe').forEach(stock);
+</script>
+</body></html>
