@@ -377,7 +377,11 @@ Questions the numbers should be able to answer:
 
 ## 5. Slice 1 — what to build first
 
-**Slice 1: the ladder + information weapons.**
+**Slice 1: the ladder + information weapons — BUILT 2026-09-12.** Measured, not asserted
+(§6): first-shot mean error 216 / 191 / 139 / 18 / 2 px for MORON / SHOOTER / TOSSER / SPOILER /
+CHOOSER; TOSSER's error grows with wind (122→157) while SPOILER's does not (29→14); all five fire
+byte-identical shots on repeat runs; UNKNOWN resolves stably and stays hidden. `ladder.html` re-runs
+all of it.
 
 - Competences: `solveRandom`, `hasLineOfFire`, `bracket` (exists), `solveForWind`, `chooseMethod`,
   `hideIdentity`.

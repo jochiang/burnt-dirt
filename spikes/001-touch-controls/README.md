@@ -595,3 +595,63 @@ thing — the same family as the three detector probes that changed nothing and 
 ## Not a finding
 
 Frame rate, memory, and battery were not measured. Not relevant to the question asked.
+
+
+---
+
+## Slice 1 — the opponent ladder and information weapons (2026-09-12)
+
+The difficulty setting is the *opponent*, because the 1991 manual contains no difficulty setting at
+all — it contains a roster, ordered by what each opponent knows how to do rather than by how badly
+it aims. So the implementation is a set of competences (`randomShot`, `losClear`, `bracketShot`,
+`solvedShot`, `chooseMethod`) and each opponent is a set of them. Adding a rung later is a table
+entry, not a code path.
+
+**The ladder, measured.** 40 seeds each, first shot, no wind, in `ladder.html`:
+
+| opponent | first-shot hits | median | mean | worst | character |
+|---|---|---|---|---|---|
+| MORON | 0/40 | 235 | 216 | 357 | no feedback at all |
+| SHOOTER | 6/40 | 234 | 191 | 357 | solves *only* with a clear lane — 34/40 maps blocked it |
+| TOSSER | 0/40 | 134 | 139 | 287 | brackets; its first shot is deliberately crude (matches SPEC's 110–155) |
+| SPOILER | 37/40 | 2 | 18 | 288 | solves wind and gravity; its 3 misses are terrain in the way |
+| CHOOSER | 40/40 | 2 | 2 | 4 | solves *and* checks the lane before committing |
+
+That ordering is the manual's, arrived at by measurement rather than by design intent — including
+the detail that SPOILER's failures are exactly the case the manual excuses it from ("assuming
+nothing is in the way").
+
+**The discriminator.** Error against wind 0/30/60/90:
+
+```
+TOSSER   122 → 132 → 145 → 157     degrades with wind
+SPOILER   29 →  27 →   2 →  14     independent of wind
+```
+
+This is the test that matters. An opponent that merely had a *smaller error constant* would fail it;
+a Spoiler passes it because it solves the same equations the shell flies on. Solving is done by
+**simulating** — `simShot` runs the engine's own integration — so there is no separate ballistic
+model that can drift away from the one that decides where the shell lands.
+
+**Determinism.** All five opponents fire identical shots when the same seed and turn are run twice.
+This closed a real hole: the old jitter came from `Math.random()`, so an AI turn interrupted by a
+phone lock fired a *different* shot on resume. It was never caught because trajectory hashes had only
+ever been compared for player shots. The AI now draws from a stream derived from
+(seed, round, turn) — nothing to save, and reproducible on re-entry.
+
+**Two bugs found in this work, by test rather than by reading:**
+
+1. SPOILER and CHOOSER passed their elevation list through without the direction conversion, so a
+   computer facing west aimed east and shot off the far edge — mean error 631px, *worse than a
+   Moron*. Worse, `simShot` decided which way the target was from the shot's own velocity, so a shot
+   flying away "crossed" the target's x on tick 1 and scored itself near-perfect. Both fixed; the
+   ladder above is the post-fix measurement.
+2. The buried case detonated on tick 1 as designed but carved nothing — which quietly deleted the
+   third way out of a burial ("keep firing and dig yourself out badly"), the option the whole
+   no-damage rule rests on. It now bursts where it stands and carves, and deals no damage.
+
+**Schema v9.** `opponent` joins `SETTLED` — a match resumed against a different AI is a different
+match, and `aiTurn()` is re-entered after a reload, so it cannot be re-derived. `smokes` joins it for
+the same reason. Verified: `restore(snapshot())` is an identity with both fields present, and an
+unrecognised opponent name is *not* silently defaulted — it is written through and rejected by
+`selfCheck` (mismatched keys `[]` on the clean path).

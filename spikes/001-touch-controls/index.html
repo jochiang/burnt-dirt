@@ -147,6 +147,12 @@
     #armTitle{font-size:12.5px}
     #armCash{font-size:15px}
   }
+  #armOppRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  #armOpp{display:flex;gap:4px;flex-wrap:wrap}
+  .opp{font-size:9px;letter-spacing:.08em;padding:5px 8px;border-radius:5px;font-family:inherit;
+       background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);color:#c3cad4}
+  .opp.on{background:#ffb454;color:#101418;border-color:#ffb454;font-weight:700}
+  #armOppBlurb{font-size:8.5px;color:#8b9bb0}
   .card{background:rgba(255,255,255,.045);border:1px solid rgba(232,226,214,.14);
        border-radius:8px;padding:8px 9px;display:flex;flex-direction:column;gap:5px}
   .card.free{border-color:rgba(140,227,127,.4)}
@@ -215,6 +221,11 @@
     <span id="armCash">0 CR</span>
     <span id="armRec"></span>
     <span id="armLoad"></span>
+  </div>
+  <div id="armOppRow">
+    <span class="tiny">OPPONENT</span>
+    <div id="armOpp"></div>
+    <span id="armOppBlurb"></span>
   </div>
   <div id="armGrid"></div>
   <div id="armFoot">
@@ -311,7 +322,27 @@ const WEAPONS = [
   {name:'NUKE',     r:38, dmg:85, price:520},
   {name:'DIGGER',   r:11, dmg:0,  price:140, tunnels:true},
   {name:'ROLLER',   r:30, dmg:60, price:260, rolls:true},
+  // Information weapons: they deal nothing and remove nothing. What they buy is a FACT — where a
+  // shot lands — and the real price is the turn spent finding out. The manual sells Tracers at $10
+  // for 20 and Smoke Tracers at $500 for 10: a 100x premium for a trail that stays on screen,
+  // which is the entire difference between the two. Scaled here to a fortieth of a Missile,
+  // because the turn is the cost and the price only has to be non-zero.
+  {name:'TRACER',   r:0,  dmg:0,  price:2, trace:true},
+  {name:'SMOKE TRC',r:0,  dmg:0,  price:8, trace:true, smoke:true},
 ];
+/* The 1991 manual's roster of computer opponents (se-manual.txt ~367) — which IS the difficulty
+   ladder, because the manual contains no difficulty setting at all. Each entry is a set of
+   COMPETENCES rather than an error radius: the difference between rungs is what the AI knows how
+   to do, not how badly it aims. See DESIGN-opponents-and-armory.md. */
+const OPPONENTS = {
+  MORON:   {blurb:'picks an angle and a power, and fires. Beginners only.'},
+  SHOOTER: {blurb:'deadly with a clear line of fire, helpless without one.'},
+  TOSSER:  {blurb:'starts crude, refines closer and closer until it hits.'},
+  SPOILER: {blurb:'accounts for wind and gravity: a perfect shot almost every time.'},
+  CHOOSER: {blurb:'has every method above, and picks the one that will work.'},
+  UNKNOWN: {blurb:'one of the above, chosen at random and never revealed.'},
+};
+const OPP_ORDER = ['MORON','SHOOTER','TOSSER','SPOILER','CHOOSER','UNKNOWN'];
 const SHIELD_PRICE = 200, SHIELD_ABSORB = 40;
 const START_CASH = 1000, WIN_BONUS = 400;
 // The 1991 accessory table: "Parachute $10,000, Bundle Size 8, Arms Level 2" — so 1,250 each,
@@ -329,11 +360,13 @@ let terrainImg = terrainCtx.createImageData(W, H);
 /* ---------- state ---------- */
 const state = {
   phase:'aim', turn:0, variant:'A', side:'left', field:'faithful',
-  wIdx:1, wind:0, round:0, msg:'YOUR TURN', log:[], ghost:null, fx:[], seed:0,
+  wIdx:1, wind:0, round:0, msg:'YOUR TURN', log:[], ghost:null, smokes:[], fx:[], seed:0,
+  opponent:'TOSSER',  // the ladder is the ROSTER, not a slider (see OPPONENTS) — and it is part of
+                      // the match's identity, so it is saved with the match
   carves:[],          // every terrain-modifying op in order: the entire persistence story
   cash:START_CASH, aiCash:START_CASH,   // two bankrolls, both fed by damage dealt
   earned:0, aiEarned:0,                 // damage attributed this match, for the payout
-  ammo:[0,0,0,0,0,0], armor:0,          // bought in the armory, spent in the match
+  ammo:[0,0,0,0,0,0,0,0], armor:0,      // bought in the armory, spent in the match
   paid:false, payout:0, armory:true,    // a match settles exactly once
   wins:0, losses:0,                     // the only progression there is
   chutes:0, aiChutes:0,                 // accessories: consumed only when one actually opens
@@ -604,7 +637,7 @@ function newRound(keepSeed){
   state.earned = 0; state.aiEarned = 0; state.paid = false; state.payout = 0;
   state.wind = Math.round((rnd()*2-1)*100);
   state.round++;
-  state.log = []; state.ghost = null; state.fx = []; proj = null;
+  state.log = []; state.ghost = null; state.smokes = []; state.fx = []; proj = null;
   player.hp = 100; enemy.hp = 100; player.dead = false; enemy.dead = false;
   placeTanks();
   ai.last = {x:null, angle:enemy.angle, power:620};
@@ -705,7 +738,8 @@ function renderArmory(){
     const owned = i === 0 ? '∞' : (state.ammo[i] || 0);
     const cls = i === 0 ? 'free' : (state.cash < w.price && !state.ammo[i] ? 'poor' : '');
     card(i, w.name, w.price,
-      w.tunnels ? 'bores a tunnel into the ground · no direct damage — it hurts by dropping what stands on it'
+      w.trace   ? 'no damage, no crater — it marks exactly where a shot lands so the next one can bracket off it'
+      : w.tunnels ? 'bores a tunnel into the ground · no direct damage — it hurts by dropping what stands on it'
                 : 'dmg ' + w.dmg + ' · blast ' + w.r + (w.rolls ? ' · rolls downhill' : ''),
       owned, cls);
   });
@@ -724,6 +758,18 @@ function renderArmory(){
     const v = b.dataset.sell; v === 's' ? buyShield(-1) : v === 'c' ? buyChute(-1) : buy(+v, -1);
   });
   grid.querySelectorAll('[data-thr]').forEach(b => b.onclick = () => bumpThresh(+b.dataset.thr));
+  // The opponent is a SETUP choice, so it lives here with the rest of the setup. Picking one rolls
+  // a new round: the opponent is part of the match's identity, and swapping it mid-flight would be
+  // a match resumed against a different AI than the one that started it.
+  const row = $('armOpp'); row.innerHTML = '';
+  OPP_ORDER.forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'opp' + (state.opponent === k ? ' on' : '');
+    b.textContent = k;
+    b.onclick = () => { state.opponent = k; newRound(false); };
+    row.appendChild(b);
+  });
+  $('armOppBlurb').textContent = OPPONENTS[state.opponent].blurb;
   $('armStart').disabled = false;
 }
 
@@ -732,9 +778,11 @@ function renderArmory(){
    literal carve ops, and the tank/AI/log state. The 120,000-byte mask is never stored.
    What it takes to survive a phone lock or a discarded background tab fits in ~1KB. */
 const SAVE_KEY = 'scorched.save.v1';
-const SAVE_VERSION = 8;   // v6: the terrain generator is no longer a heightmap, so an older
-                          // seed rebuilds a different map. Refuse them rather than load a
-                          // landscape that never existed.
+const SAVE_VERSION = 9;   // v9: the opponent is part of a match's identity, and smoke trails are
+                          // the first visual state that no terrain replay can reconstruct.
+                          // v6: the terrain generator is no longer a heightmap, so an older seed
+                          // rebuilds a different map. Refuse them rather than load a landscape
+                          // that never existed.
 let saveOK = true;
 
 /* The invariant this whole file rests on: restore(snapshot()) must be an IDENTITY on the
@@ -743,7 +791,7 @@ let saveOK = true;
    state (the seed), a transform that lost a little on every pass (the tracer). So it is
    checked rather than assumed. */
 const SETTLED = ['v','field','side','variant','seed','wind','round','wIdx',
-                 'tanks','ai','carves','log','ghost',
+                 'tanks','ai','carves','log','ghost','smokes','opponent',
                  'cash','aiCash','earned','aiEarned','ammo','armor','paid','payout','armory','wins','losses',
                  'chutes','aiChutes','chuteArmed','chuteThresh'];
 let saveBad = [];
@@ -779,6 +827,11 @@ function snapshot(){
     // the 3:1 decimation that used to live here ate the tracer 113 -> 38 -> 13 -> 5 -> 2 -> 1
     // across five resumes. Nothing in this function may lose information.
     ghost: state.ghost ? state.ghost.map(p => [Math.round(p[0]), Math.round(p[1])]) : null,
+    smokes: state.smokes.map(s => s.map(p => [Math.round(p[0]), Math.round(p[1])])),
+    // The opponent belongs to the MATCH, not to the settings: a match resumed against a different
+    // AI is a different match, and aiTurn() is re-entered after a reload, so this cannot be
+    // re-derived from anything else.
+    opponent: state.opponent,
     // a shot in the air when the screen went away is still in the air when it comes back
     // Position and velocity, not angle and power. A shot in the air is a state, not a recipe:
     // re-deriving it from the muzzle re-simulates the flight that already happened, so retuning
@@ -858,9 +911,13 @@ function restore(sv){
   state.wind = sv.wind; state.round = sv.round; state.wIdx = sv.wIdx;
   state.log = (sv.log || []).slice();
   state.ghost = sv.ghost ? sv.ghost.map(p => [p[0], p[1]]) : null;
+  state.smokes = (sv.smokes || []).map(s => s.map(p => [p[0], p[1]]));
+  // A name this build does not know is NOT defaulted silently: it is written through and then
+  // rejected by the invariant, which is exactly what selfCheck is for.
+  state.opponent = OPPONENTS[sv.opponent] ? sv.opponent : 'TOSSER';
   state.cash = sv.cash; state.aiCash = sv.aiCash;
   state.earned = sv.earned; state.aiEarned = sv.aiEarned;
-  state.ammo = (sv.ammo || [0,0,0,0,0,0]).slice();
+  state.ammo = (sv.ammo || [0,0,0,0,0,0,0,0]).slice();
   state.armor = sv.armor; state.paid = sv.paid;
   state.payout = sv.payout; state.armory = !!sv.armory;
   state.wins = sv.wins; state.losses = sv.losses;
@@ -949,6 +1006,19 @@ function fire(who){
 function stepProj(){
   if(!proj) return;
   const p = proj;
+  // A projectile that is ALREADY inside rock detonates where it stands, before it may move. This
+  // is what makes burial work: a buried tank's muzzle is inside dirt, and at VMAX 8px/tick a shot
+  // given even one tick of travel can punch through a thin covering and escape. Checked only on
+  // tick 0, so no other trajectory in the game changes.
+  if(p.t === 0 && p.y >= 0 && solid(p.x, p.y)){
+    // A buried tank still fires, and this is that shot: it bursts where it stands and DIGS. It has
+    // to carve, or the third way out of a burial — keep firing and dig yourself out badly, one
+    // crater at a time — does not exist, and the whole no-damage rule rests on that option being
+    // real. It deals no damage, to anyone, because burial is punished in TURNS, not hit points.
+    carve(p.x, p.y, Math.max(4, p.w.r*0.7));
+    state.fx.push({x:p.x, y:p.y, r:Math.max(4, p.w.r*0.7), t:0});
+    endShot(Math.round(p.x), 'buried'); return;
+  }
   p.t++;
   p.vx += state.wind*WIND_A;
   p.vy += GRAV;
@@ -1008,6 +1078,12 @@ function roller(p){
 }
 function explode(x, y){
   const w = proj.w;
+  if(w.trace){
+    // A Tracer removes nothing and damages nothing — that is the whole point of buying one. It
+    // still lands, still logs its error, and the information IS the weapon.
+    state.fx.push({x, y, r:5, t:0, trace:true});
+    endShot(Math.round(x), 'traced'); return;
+  }
   carve(x, y, w.r);
   state.fx.push({x, y, r:w.r, t:0});
   const R = w.r*1.7, owner = proj.owner;
@@ -1063,6 +1139,10 @@ function endShot(landX, how){
     off: how === 'off',
   });
   if(who === 'player') state.ghost = proj.path;
+  // Smoke Tracers are the same weapon with a trail that STAYS — the manual's "brilliantly colored
+  // smoke trail" that "makes targeting even easier". Rounded on the way in so the invariant can
+  // carry it without losing anything.
+  if(w.smoke) state.smokes.push(proj.path.map(q => [Math.round(q[0]), Math.round(q[1])]));
   else ai.last.x = landX === null ? null : clamp(landX, -W, W*2);   // keep a wild miss bracketable
   // the side column has room for 3 entries; the bottom band has room for 4
   if(state.log.length > (FIELDS[state.field].hud === 'column' ? 3 : 4)) state.log.pop();
@@ -1087,7 +1167,13 @@ function endShot(landX, how){
   save('turn');
 }
 
-/* ---------- AI: brackets, remembers, jitters ---------- */
+/* ---------- the opponent: competences, not a slider ----------
+   The manual has no difficulty setting. It has a roster ordered by what each opponent knows how to
+   do: a Moron picks a number and shoots, a Spoiler accounts for wind and gravity. So the ladder is
+   built from COMPETENCES and each opponent is a SET of them — adding a rung later is a table entry,
+   not a new code path.
+   Every decision here must be a pure function of (state, seed): a resumed AI turn has to fire the
+   same shot it would have fired, or the match stops being reproducible. */
 const ai = { wIdx:0, last:{x:null, angle:135, power:620} };
 // The computer keeps its OWN weapon index. It used to write to state.wIdx, which is the player's
 // selection: the computer's turn silently replaced the player's loadout choice and the HUD went on
@@ -1103,27 +1189,130 @@ function aiPickWeapon(){
   }
   return 0;
 }
+function aimAngle(dir, deg){ return dir > 0 ? deg : 180 - deg; }   // 0-180 is upward either way
+
+// A DERIVED stream: there is no RNG state to save, and a re-entered turn re-derives the same
+// numbers. The old code drew its jitter from Math.random(), so an AI turn interrupted by a phone
+// lock fired a DIFFERENT shot on resume — a determinism hole that the trajectory hashes never
+// covered, because those were only ever compared for player shots.
+function aiRng(){ return mulberry32((state.seed ^ 0x5bf03635) + state.round*1009 + state.turn*7919); }
+
+// UNKNOWN resolves from the seed, so the pick survives a resume without being saved — and stays
+// unknown to the player either way.
+function effectiveOpponent(){
+  if(state.opponent !== 'UNKNOWN') return state.opponent;
+  const known = ['MORON','SHOOTER','TOSSER','SPOILER','CHOOSER'];
+  const r = mulberry32((state.seed ^ 0x9e3779b9) + state.round*2654435761)();
+  return known[Math.min(known.length-1, Math.floor(r * known.length))];
+}
+
+// Straight-line line of sight, sampled every 2px. This is the Shooter's entire competence.
+function losClear(){
+  const x0 = enemy.x, y0 = tankCy(enemy), x1 = player.x, y1 = tankCy(player);
+  const steps = Math.max(1, Math.round(Math.hypot(x1-x0, y1-y0)/2));
+  for(let i = 1; i < steps; i++){
+    const t = i/steps, x = x0 + (x1-x0)*t, y = y0 + (y1-y0)*t;
+    if(y >= 0 && solid(x, y)) return false;
+  }
+  return true;
+}
+
+/* Solve by SIMULATING. There is no separate ballistic model that can drift away from the engine:
+   the AI's answer is computed with the same integration the shell will actually fly, so a Spoiler
+   hits because the physics says it hits. */
+function simShot(angleDeg, power, useTerrain){
+  const rad = angleDeg*Math.PI/180, v0 = power/1000*VMAX;
+  let x = enemy.x + Math.cos(rad)*10, y = tankCy(enemy) - Math.sin(rad)*10;
+  let vx = Math.cos(rad)*v0, vy = -Math.sin(rad)*v0;
+  // Which way the TARGET is — not which way the shot happens to be going. Deriving this from the
+  // shot's own velocity made a shot fired AWAY from the target register a crossing on tick 1, at
+  // its own muzzle, and report a near-perfect score. A shot heading the wrong way now simply never
+  // satisfies the test and scores as impossible, which is what it is.
+  const toward = Math.sign(player.x - enemy.x) || 1, tx = player.x, ty = tankCy(player);
+  for(let t = 0; t < 1400; t++){
+    vx += state.wind*WIND_A; vy += GRAV;
+    x += vx; y += vy;
+    if(useTerrain && y >= 0 && y < H && solid(x, y)) return {blocked:true, dy:1e9};
+    if(toward > 0 ? x >= tx : x <= tx) return {blocked:false, dy:Math.abs(y - ty)};
+    if(y > H + 4 || x < -600 || x > W + 600) return {blocked:false, dy:1e9};
+  }
+  return {blocked:false, dy:1e9};
+}
+// Coarse sweep then a fine pass. The response is monotone in power only up to apogee, so a plain
+// bisection can lock onto the wrong branch and converge confidently on the wrong answer.
+function bestPower(angleDeg, useTerrain){
+  let best = null;
+  const scan = (lo, hi, step) => {
+    for(let p = lo; p <= hi; p += step){
+      const r = simShot(angleDeg, p, useTerrain);
+      if(r.blocked) continue;
+      if(!best || r.dy < best.dy) best = {power:p, dy:r.dy};
+    }
+  };
+  scan(160, 1000, 20);
+  if(best) scan(Math.max(150, best.power-20), Math.min(1000, best.power+20), 2);
+  return best;
+}
+function solvedShot(angles, useTerrain){
+  let best = null;
+  for(const a of angles){
+    const b = bestPower(a, useTerrain);
+    if(b && (!best || b.dy < best.dy)) best = {angle:a, power:b.power, dy:b.dy};
+  }
+  return best ? {angle:best.angle, power:clamp(Math.round(best.power), 150, 1000),
+                 err:best.dy, method:'solve'} : null;
+}
+function randomShot(rng){
+  const dir = Math.sign(player.x - enemy.x) || 1;
+  return {angle: aimAngle(dir, 20 + Math.round(rng()*50)),
+          power: 260 + Math.round(rng()*620), method:'random'};
+}
+// The bracket — the routine this game has always had, and a ladder rung in its own right rather
+// than a fallback. Correct in RANGE space: range ~ power^2, so a linear power step oscillates.
+function bracketShot(rng){
+  const dir = Math.sign(player.x - enemy.x) || 1;   // -1: the computer fires leftward
+  let a = ai.last.angle, p;
+  if(ai.last.x === null){
+    p = 430 + Math.abs(player.x - enemy.x)*0.30;    // deliberately crude ranging shot
+  } else {
+    const errAlong = (ai.last.x - player.x)*dir;    // +ve = long
+    const sens = Math.max(0.45, 2*VMAX*VMAX/(GRAV*1e6)*ai.last.power);
+    p = ai.last.power - errAlong/sens + (rng()*2-1)*18;
+  }
+  if(p > 1000){ p = 1000; a = a === 135 ? 45 : 135; }
+  if(p < 150){ p = 150; a = a === 135 ? 45 : 135; }
+  return {angle:a, power:Math.round(p), method:'bracket'};
+}
+const SOLVERS = {
+  MORON: (rng) => randomShot(rng),
+  // "deadly, but only if they have a straight line of fire" — so it solves when the lane is clear
+  // and flails like a Moron when it isn't.
+  SHOOTER: (rng) => {
+    const dir = Math.sign(player.x - enemy.x) || 1;
+    if(!losClear()) return randomShot(rng);
+    return solvedShot([aimAngle(dir, 14), aimAngle(dir, 22)]) || randomShot(rng);
+  },
+  TOSSER: (rng) => bracketShot(rng),
+  // "Taking into account the wind factor and gravity, they will get a perfect shot almost every
+  // time, ASSUMING NOTHING IS IN THE WAY" — so the Spoiler deliberately does not check terrain.
+  // That is not an oversight in the manual, it is the weakness that keeps the rung honest.
+  SPOILER: () => solvedShot([30, 40, 45, 50, 60].map(a => aimAngle(Math.sign(player.x - enemy.x) || 1, a))) || null,
+  // "has all the above methods available, and decides which one will be most effective" — the only
+  // rung that checks whether its own solution is actually clear before committing to it.
+  CHOOSER: (rng) => solvedShot([30, 38, 45, 52, 60].map(a => aimAngle(Math.sign(player.x - enemy.x) || 1, a)), true) || bracketShot(rng),
+};
 function aiTurn(){
   // phase-gated: a setTimeout queued before a background/resume must not fire a stray turn
   if(state.phase !== 'wait') return;
   ai.wIdx = aiPickWeapon();
 
-  const dir = Math.sign(player.x - enemy.x) || 1;   // -1: the computer fires leftward
-  let p, a = ai.last.angle;
-  if(ai.last.x === null){
-    p = 430 + Math.abs(player.x - enemy.x)*0.30;    // deliberately crude ranging shot
-  } else {
-    // correct in RANGE space, not power space: range ~ power^2, so a linear power
-    // step oscillates instead of converging. sens = d(range)/d(power) in px per unit.
-    const errAlong = (ai.last.x - player.x)*dir;    // +ve = long
-    const sens = Math.max(0.45, 2*VMAX*VMAX/(GRAV*1e6)*ai.last.power);
-    p = ai.last.power - errAlong/sens + (Math.random()*2-1)*18;
-  }
-  if(p > 1000){ p = 1000; a = a === 135 ? 45 : 135; }
-  if(p < 150){ p = 150; a = a === 135 ? 45 : 135; }
-  ai.last.angle = a;
-  ai.last.angle = a; ai.last.power = Math.round(p);
-  enemy.angle = a; enemy.power = Math.round(p);
+  const rng = aiRng();
+  const opp = effectiveOpponent();
+  const shot = (SOLVERS[opp] || SOLVERS.TOSSER)(rng) || randomShot(rng);
+  ai.method = shot.method;         // instrumentation for the harness; never persisted
+
+  ai.last.angle = shot.angle; ai.last.power = shot.power;
+  enemy.angle = shot.angle;   enemy.power = shot.power;
   fire('enemy');
 }
 
@@ -1195,6 +1384,7 @@ function render(){
   drawWindFlag();
 
   if(state.ghost) drawPath(state.ghost, 'rgba(232,226,214,.16)', 1);
+  for(const s of state.smokes) drawPath(s, 'rgba(255,168,90,.20)', 1.4);
   // Crisp, not smoothed. Terrain is 400x300 logical upscaled ~1.9x (more on a dpr=3 phone), and
   // bilinear filtering blended the 1px #c99155 surface line into the sky on whichever destination
   // pixels straddled the source boundary: a grey dashed fringe on 20% of columns, and a dither
@@ -1566,6 +1756,8 @@ window.__spike = {
   carve, save, restore, selfCheck, snapshot, readSave, solid, dropTanks, groundUnder, buildWeapons,
   genTerrain, placeTanks, resize, render, syncHud, redrawTerrain, setField,
   buy, buyShield, buyChute, bumpThresh, startMatch, openArmory, renderArmory, aiPickWeapon, roller,
+  OPPONENTS, OPP_ORDER, effectiveOpponent, aiRng, losClear, simShot, solvedShot, bracketShot,
+  randomShot, SOLVERS, aimAngle,
   chuteOn, fallVis, get recording(){return recording;}, set recording(v){recording = v;},
 };
 </script>
