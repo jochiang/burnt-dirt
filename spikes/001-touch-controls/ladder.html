@@ -156,6 +156,46 @@ function run(){
        '<p>Firing your way out is supposed to be bad, and it should get worse the more was dropped ' +
        'on you — that is the penalty that replaces a damage rule. The Riot Charge is the designed ' +
        'answer and must always take exactly one turn.</p>';
+  // ---- the specials: one mechanism, four numbers ----
+  const runSpecial = (name) => {
+    S.recording=false; S.state.carves=[]; S.state.seed=915;
+    S.genTerrain(915); S.placeTanks(); S.recording=true; S.state.wind=0; S.state.log=[];
+    S.state.phase='aim'; S.state.ammo.fill(0); S.extras=[];
+    const i = S.W_IDX[name];
+    S.state.ammo[i]=1; S.state.wIdx=i; S.state.phase='aim';
+    S.player.angle=45; S.player.power=520;
+    const c = S.state.carves.length;
+    S.fire('player');
+    let n=0, saw=0;
+    while((S.proj || S.extras.length) && n<30000){ S.stepProj(); n++; saw = Math.max(saw, S.extras.length); }
+    return { carves: S.state.carves.length - c, warheads: saw + 1 };
+  };
+  // the dud: an air cell whose exact post-integration position is solid. A MIRV that meets terrain
+  // before apogee must NOT explode — that rule is the only thing keeping five warheads fair.
+  const dudCheck = () => {
+    S.recording=false; S.state.carves=[]; S.state.seed=901;
+    S.genTerrain(901); S.placeTanks(); S.recording=true;
+    S.state.phase='aim'; S.state.ammo.fill(0); S.extras=[];
+    let sx=null, sy=null;
+    for(let y=30;y<S.H-10 && sx===null;y++) for(let x=30;x<S.W-30;x++)
+      if(!S.solid(x,y) && S.solid(x+4,y-5)){ sx=x; sy=y; break; }
+    if(sx === null) return 'no test site';
+    const mi = S.W_IDX['MIRV'], c = S.state.carves.length;
+    S.proj = {x:sx, y:sy, vx:4, vy:-5, path:[[sx,sy]], owner:'player', w:S.WEAPONS[mi], wIdx:mi, t:0};
+    S.state.phase='flying';
+    let n=0; while(S.proj && n<6){ S.stepProj(); n++; }
+    const ok = !S.proj && (S.state.carves.length - c) === 0;
+    return ok ? '<span class="ok">dud, no crater</span>' : '<span class="bad">EXPLODED ANYWAY</span>';
+  };
+  const spec = ['LEAPFROG','MIRV','FUNKY BOMB',"DEATH'S HD"].map(nm => {
+    const r = runSpecial(nm);
+    return '<tr><td>' + nm + '</td><td>' + r.warheads + '</td><td>' + r.carves + '</td></tr>';
+  }).join('');
+  h += '<h2>THE SPECIALS — ONE MECHANISM, FOUR NUMBERS</h2>' +
+       '<table><tr><th>weapon</th><th>warheads</th><th>craters</th></tr>' + spec + '</table>' +
+       '<table><tr><td>MIRV fired too flat to split</td><td>' + dudCheck() + '</td></tr></table>' +
+       '<p>A salvo is not over when the first warhead lands: the turn stays open until the last one is ' +
+       'down, and a save taken mid-salvo resumes with the whole salvo still in the air.</p>';
   $('out').innerHTML = h;
 }
 addEventListener('load', () => setTimeout(run, 500));

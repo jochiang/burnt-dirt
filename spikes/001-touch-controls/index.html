@@ -350,7 +350,24 @@ const WEAPONS = [
   {name:'DIRT BALL',  r:33, dmg:0, price:60,  deposits:true, cat:'producing'},
   {name:'TON O DIRT', r:66, dmg:0, price:200, deposits:true, cat:'producing'},
   {name:'LIQUID DIRT',r:28, dmg:0, price:80,  liquid:true,   cat:'producing'},
+
+  /* --- The specials: one mechanism, different numbers. A warhead that carries more than one
+     detonation. The manual files all four under Standard Weapons. --- */
+  // "three warheads which launch one after another... often very effective for penetrating shields".
+  // The manual gives its blast radii as 20/25/30 — stacked detonations at one point is what
+  // penetration means when there is no shield to defeat.
+  {name:'LEAPFROG',  r:20, dmg:45, price:200, seq:[20,25,30], cat:'standard'},
+  // "contains five Missile warheads, which split apart when the original missile reaches apogee.
+  // If the warhead hits something before reaching apogee, it will not explode." The dud rule is not
+  // a detail: it is the only thing stopping five warheads from being strictly better than a Nuke.
+  {name:'MIRV',      r:20, dmg:40, price:240, mirv:5,         cat:'standard'},
+  {name:'FUNKY BOMB',r:26, dmg:40, price:340, funky:12,       cat:'standard'},
+  // "Functionally equivalent to MIRVs, it contains nine large scale explosive warheads."
+  {name:"DEATH'S HD",r:35, dmg:58, price:420, mirv:9,         cat:'standard'},
 ];
+// Index by NAME. aiPickWeapon used to hold positional indices into this array, which means every
+// new weapon inserted anywhere above them silently rewired the computer's shopping list.
+const W_IDX = {}; WEAPONS.forEach((w,i) => { W_IDX[w.name] = i; });
 // Prices are PROVISIONAL, fitted by the design doc's rule: rank order preserved, anchored on the
 // existing pairs, top end compressed so one win still buys something meaningful.
 const CATS = [['standard','STANDARD'], ['destroying','EARTH DESTROYING'],
@@ -403,6 +420,9 @@ let recording = true; // false while replaying a restore, so replays do not re-r
 const player = {x:0, y:0, hp:100, angle:45, power:520, dead:false};
 const enemy  = {x:0, y:0, hp:100, angle:135, power:520, dead:false};
 let proj = null, mask = null, surf = null, terrainDirty = true;
+// Warheads in flight besides the primary: a MIRV's children are real projectiles with their own
+// ballistics, not a scripted effect, so the turn stays open until the last one lands.
+let extras = [], salvoHold = false, salvoWho = null;
 
 /* ---------- rng (seeded: a match is reproducible) ---------- */
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
@@ -764,6 +784,7 @@ function newRound(keepSeed){
   state.wind = Math.round((rnd()*2-1)*100);
   state.round++;
   state.log = []; state.ghost = null; state.smokes = []; state.fx = []; proj = null;
+  extras = []; salvoHold = false; salvoWho = null;
   player.hp = 100; enemy.hp = 100; player.dead = false; enemy.dead = false;
   placeTanks();
   ai.last = {x:null, angle:enemy.angle, power:620};
@@ -922,7 +943,9 @@ function renderArmory(){
    literal carve ops, and the tank/AI/log state. The 120,000-byte mask is never stored.
    What it takes to survive a phone lock or a discarded background tab fits in ~1KB. */
 const SAVE_KEY = 'scorched.save.v1';
-const SAVE_VERSION = 10;  // v10: terrain ops are TYPED (a crater and a deposit are different
+const SAVE_VERSION = 11;  // v11: a MIRV keeps warheads in flight after the primary has landed, so
+                          // the save carries a list of them. v10: terrain ops are TYPED.
+                          // v10 (cont): a crater and a deposit are different
                           // things now), so an older carve list cannot be replayed.
                           // v9: the opponent is part of a match's identity, and smoke trails are
                           // the first visual state that no terrain replay can reconstruct.
@@ -937,7 +960,7 @@ let saveOK = true;
    state (the seed), a transform that lost a little on every pass (the tracer). So it is
    checked rather than assumed. */
 const SETTLED = ['v','field','side','variant','seed','wind','round','wIdx',
-                 'tanks','ai','carves','log','ghost','smokes','opponent',
+                 'tanks','ai','carves','log','ghost','smokes','opponent','proj','extras',
                  'cash','aiCash','earned','aiEarned','ammo','armor','paid','payout','armory','wins','losses',
                  'chutes','aiChutes','chuteArmed','chuteThresh'];
 let saveBad = [];
@@ -984,8 +1007,13 @@ function snapshot(){
     // the physics silently rewrites history.
     proj: (proj && state.phase === 'flying') ? {
       owner: proj.owner, t: proj.t, wIdx: proj.wIdx,
-      x: proj.x, y: proj.y, vx: proj.vx, vy: proj.vy,
+      x: proj.x, y: proj.y, vx: proj.vx, vy: proj.vy, split: !!proj.split,
     } : null,
+    // A salvo mid-flight. Same rule as proj: position and velocity, never a recipe, so retuning the
+    // physics cannot silently rewrite a flight that already happened. The flown trail restarts.
+    extras: (state.phase === 'flying') ? extras.map(e => ({
+      owner: e.owner, t: e.t, wIdx: e.wIdx, x: e.x, y: e.y, vx: e.vx, vy: e.vy, split: true,
+    })) : [],
     phys: physTag(),
   };
 }
@@ -1084,7 +1112,15 @@ function restore(sv){
     const p = sv.proj;
     state.wIdx = p.wIdx;
     proj = { x:p.x, y:p.y, vx:p.vx, vy:p.vy, path:[[p.x, p.y]], owner:p.owner,
-             w:WEAPONS[p.wIdx], wIdx:p.wIdx, t:p.t };
+             w:WEAPONS[p.wIdx], wIdx:p.wIdx, t:p.t, split: !!p.split };
+    extras = (sv.extras || []).map(e => ({
+      x:e.x, y:e.y, vx:e.vx, vy:e.vy, path:[[e.x, e.y]], owner:e.owner,
+      w:WEAPONS[e.wIdx], wIdx:e.wIdx, t:e.t, split:true,
+    }));
+    // Hold the turn open only if the primary has ALREADY landed with children still in the air. If
+    // the primary is still flying, endShot() will set this itself when it lands — and if it does not
+    // hold when it should, the salvo finishes with nobody to hand the turn to and the match hangs.
+    salvoHold = !proj && extras.length > 0; salvoWho = salvoHold ? p.owner : null;
     state.phase = 'flying';
     state.msg = p.owner === 'player' ? 'IN FLIGHT' : 'COMPUTER FIRES';
     if(sv.phys && sv.phys !== physTag()) state.msg = 'PHYSICS CHANGED · SHOT MAY LAND DIFFERENTLY';
@@ -1165,6 +1201,7 @@ function fire(who){
   syncHud();
 }
 function stepProj(){
+  stepExtras();                    // warheads already in the air move first
   if(!proj) return;
   const p = proj;
   // A projectile that is ALREADY inside rock detonates where it stands, before it may move. This
@@ -1234,8 +1271,17 @@ function stepProj(){
       return;
     }
     if(p.w.rolls){ roller(p); return; }
+    if(p.w.mirv && !p.split){
+      // "If the warhead hits something before reaching apogee, it will not explode." A flat shot is
+      // simply wasted — which is the whole reason a five-warhead weapon is not strictly better.
+      state.fx.push({x:p.x, y:p.y, r:5, t:0, col:'150,150,150'});
+      if(p.owner === 'player') state.msg = 'MIRV DUD · FIRED TOO FLAT TO SPLIT';
+      endShot(Math.round(p.x), 'dud'); return;
+    }
     explode(p.x, p.y); return;
   }
+  // nothing was hit this tick: has a multi-warhead shell reached apogee?
+  if(p.w.mirv && !p.split && p.vy >= 0) splitWarheads(p);
 }
 function roller(p){
   let rx = Math.round(Math.max(1, Math.min(W-2, p.x)));
@@ -1253,6 +1299,67 @@ function roller(p){
     if(ny >= ry){ rx = nx; ry = ny; } else break;
   }
   explode(rx, ry - 2);
+}
+/* One detonation: carve, then damage by distance. Split out from explode() so a MIRV's children and
+   a Funky Bomb's chain can detonate without ending the turn — only the shot itself ends a turn. */
+function blast(x, y, rad, dmg, owner){
+  carve(x, y, rad);
+  const R = rad*1.7;
+  for(const pair of [['player',player],['enemy',enemy]]){
+    const k = pair[0], t = pair[1];
+    if(t.dead) continue;
+    const dx = t.x - x, dy = tankCy(t) - y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    if(d >= R) continue;
+    let hit = Math.round(dmg*(1 - d/R));
+    if(k === 'player' && state.armor > 0){          // armour eats damage before the hull does
+      const absorbed = Math.min(state.armor, hit);
+      state.armor -= absorbed; hit -= absorbed;
+    }
+    t.hp = Math.max(0, t.hp - hit);
+    // the payout is damage dealt, so every point has to be attributed to whoever's shell did it
+    if(k === 'enemy'  && owner === 'player') state.earned   += hit;
+    if(k === 'player' && owner === 'enemy')  state.aiEarned += hit;
+  }
+}
+// "which split apart when the original missile reaches apogee". The primary carries on as the first
+// warhead, so the boost phase stays on one continuous trail; the rest become extras.
+function splitWarheads(p){
+  const n = p.w.mirv;
+  const rng = mulberry32((state.seed ^ 0x5f3759df) + state.round*2654435761 + p.t);
+  p.split = true;
+  for(let i = 1; i < n; i++){
+    const spread = (i/(n-1) - 0.5) * 2;                       // -1 .. +1 across the salvo
+    extras.push({ x:p.x, y:p.y,
+                  vx: p.vx * (1 + spread*0.12 + (rng()-0.5)*0.04),
+                  vy: p.vy * (1 + (rng()-0.5)*0.06),
+                  path:[[p.x, p.y]], owner:p.owner, w:p.w, wIdx:p.wIdx, t:0, split:true });
+  }
+  state.fx.push({x:p.x, y:p.y, r:11, t:0, col:'255,214,150'});
+  if(p.owner === 'player') state.msg = 'MIRV · ' + n + ' WARHEADS';
+}
+// Step every extra warhead. They are ordinary projectiles: wind, gravity, tanks, terrain.
+function stepExtras(){
+  for(let i = extras.length - 1; i >= 0; i--){
+    const p = extras[i];
+    p.t++;
+    p.vx += state.wind*WIND_A; p.vy += GRAV;
+    p.x += p.vx; p.y += p.vy;
+    p.path.push([p.x, p.y]);
+    if(p.path.length > 900) p.path.shift();
+    let done = false;
+    for(const pair of [['player',player],['enemy',enemy]]){
+      const k = pair[0], t = pair[1];
+      if(t.dead || k === p.owner) continue;
+      const dx = p.x - t.x, dy = p.y - tankCy(t);
+      if(dx*dx + dy*dy < 34){ blast(p.x, p.y, p.w.r, p.w.dmg, p.owner); done = true; break; }
+    }
+    if(!done && (p.y > H+4 || p.x < -1500 || p.x > W+1500)) done = true;
+    if(!done && p.y >= 0 && solid(p.x, p.y)){ blast(p.x, p.y, p.w.r, p.w.dmg, p.owner); done = true; }
+    if(done) extras.splice(i, 1);
+  }
+  // the salvo is done: NOW the turn can move
+  if(salvoHold && !extras.length){ salvoHold = false; afterShots(salvoWho); }
 }
 function explode(x, y){
   const w = proj.w;
@@ -1272,29 +1379,32 @@ function explode(x, y){
     else deposit(x, y+dy, w.r);
     endShot(Math.round(x), 'dirt'); return;
   }
+  if(w.funky){
+    // "explodes in a multi-colored toxic chain reaction. Sometimes they don't explode exactly where
+    // you want them to, but they are generally confined to the area where they hit." In the original
+    // that chaos comes from an unseeded RNG. Here it is seeded: unrepeatable in appearance, exactly
+    // repeatable in fact, so the match still replays and you still cannot aim it.
+    const rng = mulberry32((state.seed ^ 0x7f4a7c15) + state.round*7919 + state.turn*104729);
+    const cols = ['255,90,60','255,180,84','140,227,127','127,212,255','201,138,255'];
+    for(let i=0;i<w.funky;i++){
+      const a = rng()*Math.PI*2, dd = rng()*46;
+      const bx = Math.round(x + Math.cos(a)*dd), by = Math.round(y + Math.sin(a)*dd*0.6);
+      const br = 8 + Math.round(rng()*18);
+      state.fx.push({x:bx, y:by, r:br, t:0, col:cols[i % cols.length]});
+      blast(bx, by, br, w.dmg, proj.owner);
+    }
+    endShot(Math.round(x), 'funky'); return;
+  }
+  if(w.seq){
+    for(const r of w.seq){ state.fx.push({x, y, r, t:0, col:'255,180,84'}); blast(x, y, r, w.dmg, proj.owner); }
+    endShot(Math.round(x), 'leapfrog'); return;
+  }
   carve(x, y, w.r);
   state.fx.push({x, y, r:w.r, t:0});
   if(w.earth){
     // Earth Destroying: removes dirt and nothing else. "Most of these weapons cannot directly harm
     // a tank, though they can cause them to fall and take damage that way."
     endShot(Math.round(x), 'crater'); return;
-  }
-  const R = w.r*1.7, owner = proj.owner;
-  for(const pair of [['player',player],['enemy',enemy]]){
-    const k = pair[0], t = pair[1];
-    if(t.dead) continue;
-    const dx = t.x - x, dy = tankCy(t) - y;
-    const d = Math.sqrt(dx*dx + dy*dy);
-    if(d >= R) continue;
-    let dmg = Math.round(w.dmg*(1 - d/R));
-    if(k === 'player' && state.armor > 0){          // armour eats damage before the hull does
-      const absorbed = Math.min(state.armor, dmg);
-      state.armor -= absorbed; dmg -= absorbed;
-    }
-    t.hp = Math.max(0, t.hp - dmg);
-    // the payout is damage dealt, so every point has to be attributed to whoever's shell did it
-    if(k === 'enemy'  && owner === 'player') state.earned   += dmg;
-    if(k === 'player' && owner === 'enemy')  state.aiEarned += dmg;
   }
   endShot(Math.round(x), 'impact');
 }
@@ -1336,14 +1446,24 @@ function endShot(landX, how){
   // smoke trail" that "makes targeting even easier". Rounded on the way in so the invariant can
   // carry it without losing anything.
   if(w.smoke) state.smokes.push(proj.path.map(q => [Math.round(q[0]), Math.round(q[1])]));
-  else ai.last.x = landX === null ? null : clamp(landX, -W, W*2);   // keep a wild miss bracketable
+  // The bracket belongs to the AI and updates ONLY from the AI's own shots. Adding the smoke branch
+  // above silently rebound this `else` to `if(w.smoke)`, so every PLAYER shot was overwriting the
+  // computer's memory of where its own last shell landed — and it then bracketed off your landing
+  // using its own power-sensitivity maths. The sweep never caught it because in the sweep only the
+  // computer fires. Separate statements, not an else chain.
+  if(who === 'enemy') ai.last.x = landX === null ? null : clamp(landX, -W, W*2);
   // the side column has room for 3 entries; the bottom band has room for 4
   if(state.log.length > (FIELDS[state.field].hud === 'column' ? 3 : 4)) state.log.pop();
   proj = null;
   player.dead = player.hp <= 0;
   enemy.dead = enemy.hp <= 0;
   syncHud();
-
+  // A salvo is not finished when its first warhead lands — a MIRV's children are still falling.
+  // Hold the turn open, or the other player is handed a turn while your warheads are in the air.
+  if(extras.length){ salvoHold = true; salvoWho = who; save('salvo'); return; }
+  afterShots(who);
+}
+function afterShots(who){
   if(player.dead || enemy.dead){
     state.phase = 'over';
     state.msg = enemy.dead && !player.dead ? 'COMPUTER DESTROYED'
@@ -1376,9 +1496,11 @@ const ai = { wIdx:0, last:{x:null, angle:135, power:620} };
 function aiPickWeapon(){
   // it insures itself when it can afford to and still fight
   if(state.aiChutes < 2 && state.aiCash >= CHUTE_PRICE * 3){ state.aiChutes++; state.aiCash -= CHUTE_PRICE; }
-  const wish = enemy.hp < 45 ? [3, 2, 5, 1, 0] : [1, 2, 0, 0, 0];
+  const wish = (enemy.hp < 45 ? ["NUKE","BABY NUKE","ROLLER","MISSILE","BABY MSL"]
+                              : ["MISSILE","BABY NUKE","BABY MSL","BABY MSL","BABY MSL"])
+               .map(n => W_IDX[n]);
   for(const i of wish){
-    if(state.aiCash >= WEAPONS[i].price){ state.aiCash -= WEAPONS[i].price; return i; }
+    if(i !== undefined && state.aiCash >= WEAPONS[i].price){ state.aiCash -= WEAPONS[i].price; return i; }
   }
   return 0;
 }
@@ -1589,6 +1711,7 @@ function render(){
   drawTank(player, '#7fd4ff');
   drawTank(enemy, '#ff5a3c');
   if(proj) drawPath(proj.path, 'rgba(255,180,84,.55)', 1);
+  for(const e of extras) drawPath(e.path, 'rgba(255,130,90,.5)', 1);
   if(proj){ ctx.fillStyle = '#fff2d8'; ctx.beginPath(); ctx.arc(proj.x, proj.y, 2.2, 0, 6.3); ctx.fill(); }
   drawFx();
   if(proj && proj.owner === 'player') drawAimGuide();
@@ -1678,10 +1801,11 @@ function drawFx(){
       ctx.beginPath(); ctx.arc(f.x, f.y, 10*p + 2, 0, 6.3); ctx.stroke();
       continue;
     }
-    ctx.strokeStyle = `rgba(255,150,70,${0.9*(1-p)})`;
+    const col = f.col || '255,150,70';       // a Funky Bomb's chain is multi-coloured by definition
+    ctx.strokeStyle = `rgba(${col},${0.9*(1-p)})`;
     ctx.lineWidth = 2.4*(1-p)+0.6;
     ctx.beginPath(); ctx.arc(f.x, f.y, f.r*(0.35 + 1.15*p), 0, 6.3); ctx.stroke();
-    ctx.fillStyle = `rgba(255,220,150,${0.5*(1-p)})`;
+    ctx.fillStyle = `rgba(${col},${0.5*(1-p)})`;
     ctx.beginPath(); ctx.arc(f.x, f.y, f.r*0.55*(1-p), 0, 6.3); ctx.fill();
   }
 }
@@ -1952,6 +2076,9 @@ window.__spike = {
   get cw(){return cw;}, get ch(){return ch;}, get fit(){return fit;},
   get ox(){return ox;}, get oy(){return oy;},
   carve, deposit, liquidDirt, wedgeCarve, applyOp, paintCircle, paintLiquid, paintWedge, buried, OP, CATS,
+  blast, splitWarheads, stepExtras, W_IDX,
+  get extras(){return extras;}, set extras(v){extras = v;},
+  get salvoHold(){return salvoHold;},
   save, restore, selfCheck, snapshot, readSave, solid, dropTanks, groundUnder, buildWeapons,
   genTerrain, placeTanks, resize, render, syncHud, redrawTerrain, setField,
   buy, buyShield, buyChute, bumpThresh, startMatch, openArmory, renderArmory, aiPickWeapon, roller,

@@ -705,3 +705,40 @@ nothing beyond it).
 6. The harness regenerated terrain without setting `state.seed`, so `restore()` rebuilt a *different
    map* and the invariant reported `tanks` mismatched. My test's bug, not the product's — third time
    this session a harness has abused the API and been caught by `selfCheck` doing its job.
+
+
+---
+
+## Slice 2b — the specials, and a bug they exposed (2026-09-12)
+
+MIRV, Death's Head, Leapfrog, Funky Bomb. One mechanism — a multi-warhead shell — with different
+numbers. Measured in `ladder.html`:
+
+| weapon | warheads | craters |
+|---|---|---|
+| LEAPFROG | 3 stacked | 3 |
+| MIRV | 5 | 5 |
+| FUNKY BOMB | 12 scattered | 12 |
+| DEATH'S HD | 9 | 9 |
+
+A MIRV's children are **real projectiles with their own ballistics**, so the turn stays open until the
+last one lands; a save taken mid-salvo resumes with the salvo still in the air (schema v11, and
+`proj`/`extras` joined the invariant, which had never covered in-flight ordnance). The dud rule —
+*"if the warhead hits something before reaching apogee, it will not explode"* — is implemented
+exactly: one tick into terrain while still rising, zero craters, no split. All four are deterministic
+on repeat runs. The Funky Bomb's scatter is seeded, so it is unrepeatable in appearance and perfectly
+repeatable in fact.
+
+**And one shippped bug, found by reading rather than by testing** — which is the part worth recording:
+
+```js
+if(who === 'player') state.ghost = proj.path;
+if(w.smoke) state.smokes.push(...);
+else ai.last.x = landX ...         // bound to if(w.smoke), NOT to the player check
+```
+
+The smoke-tracer branch added in Slice 1 silently rebound that `else`, so **every shot the player
+fired overwrote the computer's memory of where its own last shell landed** — and the computer then
+bracketed off *your* landing using its own power-sensitivity maths. The ladder sweep never caught it
+because in the sweep only the computer fires. Now a separate statement, with the AI's bracket
+updating only from its own shots, and both directions asserted.

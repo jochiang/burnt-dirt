@@ -200,6 +200,25 @@ the hull it clears a fixed band the overburden survives. Only cutting from the *
 downward** accumulates — which is exactly why the cost is proportional, because a bigger shell takes
 a bigger bite.
 
+### 3.4a The specials — built, and how they work
+
+Four weapons, one mechanism. A *multi-warhead shell*: MIRV (5), Death's Head (9), Leapfrog (3 stacked
+detonations, which is what "penetrating" means with no shield to defeat), and the Funky Bomb (a seeded
+scatter of twelve).
+
+- **A MIRV's children are real projectiles**, not a scripted effect: the primary carries on as the
+  first warhead, the rest become extras with their own ballistic paths, and `stepExtras()` walks them
+  every tick. Which means the turn stays open until the last one lands. A save taken mid-salvo
+  resumes with the salvo still in the air — schema **v11** carries the list, and `proj`/`extras` were
+  *added to the invariant*, which had never covered in-flight ordnance at all.
+- **The dud rule is load-bearing.** *"If the warhead hits something before reaching apogee, it will
+  not explode."* A flat MIRV is simply wasted — verified: one tick, zero craters, no split. Without
+  it, five warheads would be strictly better than a Nuke and the price ladder is meaningless.
+- **The Funky Bomb is seeded.** The original's chaos came from an unseeded RNG; ours is chaotic in
+  appearance and exactly reproducible, which is the trade this project makes everywhere. Twelve
+  detonations within ~46px of the impact, multi-coloured, "generally confined to the area where it
+  hit", exactly as the manual describes.
+
 ### 3.4 Why the categories are self-consistent
 
 Worth stating, because it's what makes the catalog feel designed rather than accumulated:

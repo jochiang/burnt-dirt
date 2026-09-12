@@ -293,7 +293,10 @@ Its §8 carries the decisions still open. **Slice 1 is built**: the six-rung opp
 v9) and the TRACER / SMOKE TRC information weapons. **Slice 2 is built**: the Earth family (Dirt
 Clod / Ball / Ton, Liquid Dirt, Riot Charge / Blast / Bomb), the BURIED state with a HULL readout,
 and typed terrain ops — a crater and a deposit are different operations now, so the ordered op list
-carries a type (schema v10). Every terrain change remains a literal recorded op. The ladder is measured rather than asserted —
+carries a type (schema v10). Every terrain change remains a literal recorded op. **The specials are
+built too**: MIRV / Death's Head / Leapfrog / Funky Bomb, one multi-warhead mechanism with different
+numbers, children as real projectiles (schema v11, which also brought in-flight ordnance into the
+invariant for the first time). The ladder is measured rather than asserted —
 see `spikes/001-touch-controls/ladder.html`, which re-runs the sweep.
 
 Kept here so it does not have to be reconstructed from conversation. Three kinds, deliberately
