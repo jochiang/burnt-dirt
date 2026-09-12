@@ -46,6 +46,7 @@ jobs:
           cp spikes/001-touch-controls/index.html   _site/
           cp spikes/001-touch-controls/harness.html _site/
           cp spikes/001-touch-controls/armory.html  _site/
+          cp spikes/001-touch-controls/ladder.html  _site/
       - name: Setup Pages
         uses: actions/configure-pages@v6
       - name: Upload artifact
