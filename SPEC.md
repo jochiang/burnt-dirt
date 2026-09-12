@@ -1,4 +1,7 @@
-# Scorched Earth, mobile-native — spec
+# Burnt Dirt — mobile-native Scorched Earth
+
+**Naming:** the project is *Burnt Dirt*. The 1991 original it answers to stays
+*Scorched Earth*. Two synonyms, one doctrine.
 
 **One line:** a touch-first Scorched Earth for the two-to-five minute gaps — waiting on a
 build, a deploy, a test run. Landscape. One thumb. Played against the computer.
