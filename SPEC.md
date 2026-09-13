@@ -296,7 +296,10 @@ and typed terrain ops — a crater and a deposit are different operations now, s
 carries a type (schema v10). Every terrain change remains a literal recorded op. **The specials are
 built too**: MIRV / Death's Head / Leapfrog / Funky Bomb, one multi-warhead mechanism with different
 numbers, children as real projectiles (schema v11, which also brought in-flight ordnance into the
-invariant for the first time). The ladder is measured rather than asserted —
+invariant for the first time). **Two regressions reported from play are fixed** — see the README: the armory
+charged credits without registering (a hand-written ammo list that outlived the catalogue), and the
+in-combat controls were cropped (the chip list outgrowing the HUD). Both were the same shape: a second
+structure kept in step with `WEAPONS` by hand. The ladder is measured rather than asserted —
 see `spikes/001-touch-controls/ladder.html`, which re-runs the sweep.
 
 Kept here so it does not have to be reconstructed from conversation. Three kinds, deliberately

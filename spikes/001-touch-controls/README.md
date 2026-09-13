@@ -742,3 +742,63 @@ fired overwrote the computer's memory of where its own last shell landed** — a
 bracketed off *your* landing using its own power-sensitivity maths. The ladder sweep never caught it
 because in the sweep only the computer fires. Now a separate statement, with the AI's bracket
 updating only from its own shots, and both directions asserted.
+
+
+---
+
+## Regression report — charged but not registered, and a cropped control panel (2026-09-12)
+
+Both reported by playing the live build. Both real, both mine, both from the last two pushes.
+
+### FIXED — the armory charged credits and registered nothing
+
+Reproduced by driving the real DOM controls at phone size with credits available:
+
+| card | paid | registered | | card | paid | registered |
+|---|---|---|---|---|---|---|
+| MISSILE | 60 | ✓ | | **MIRV** | 240 | **nothing** |
+| NUKE | 520 | ✓ | | **FUNKY BOMB** | 340 | **nothing** |
+| DIRT CLOD | 30 | ✓ | | **LEAPFROG** | 200 | **nothing** |
+| RIOT BOMB | 120 | ✓ | | **DEATH'S HD** | 420 | **nothing** |
+
+Exactly the four newest weapons. `ammo:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]` — a hand-written list of
+fifteen zeros — was never extended when the catalogue grew to nineteen, so `ammo[15]++` was
+`undefined + 1` = **NaN**: charged, stored as NaN, and displayed as 0 because the card renders
+`state.ammo[i] || 0`. The restore path had a *second* copy of that same fifteen-zero list, so a
+pre-existing save restored short and poisoned itself again.
+
+Fixed by deriving the array from `WEAPONS` (`WEAPONS.map(() => 0)`) and by adding `padAmmo()`, which
+pads the array to the catalogue's size and repairs any slot that is not a finite number. The loaded
+copy is repaired too, because `selfCheck` compares state against the loaded save — leaving the null
+slots in place would fail the check on a now-good save, and a failing check stops autosaving, so a
+repaired save could never be written back. The invariant had *already* flagged it: the live page
+showed **SAVE REJECTED · ammo**.
+
+### FIXED — the in-combat controls were cropped
+
+The control column measured **497px tall inside a 386px window** and, with `justify-content:center`,
+that overflow went **both ways** — the stat row landed at **−64px**, off the top of the screen and
+unreachable. In the band the box was 117px inside a 104px band: 6px off each end.
+
+Cause: the weapon chip list grows with the catalogue (8 → 15 → 19 chips), and the HUD had no bound on
+it. The catalogue is now bounded and scrollable in both layouts — a horizontal strip in the 104px
+band, a vertical grid in the column — so the HUD no longer depends on how many weapons exist. Both
+HUD containers also use `safe center`, which degrades to `start` instead of overflowing both ways.
+
+### FIXED (found while reproducing) — TRACER and SMOKE TRC had no armory card at all
+
+They shipped with **no `cat` field**, and the sectioned armory renders by category — so both cards
+were silently dropped. The catalogue was 19 cards where it should have been 21. They are Standard
+Weapons per the manual, so they have a category now; and the renderer has a completeness guard that
+gives a card to any weapon whose category it does not recognise, under an `UNFILED` heading.
+
+### The pattern, which is the part worth keeping
+
+Three separate faults in one day, all the same shape: **a second structure that had to be kept in
+step with `WEAPONS` by hand.** Positional indices in `aiPickWeapon` (found by reading). A fifteen-zero
+ammo list (found by playing). A renderer that only draws weapons whose category it recognises (found
+by counting cards). Two of the three are now derived rather than written, and the third fails loudly
+instead of silently.
+
+Verified after the fixes: 21 cards, 4 sections, **every weapon in the catalogue charges once and
+registers once**, zero NaN slots, and **nothing off-screen in either field mode**.

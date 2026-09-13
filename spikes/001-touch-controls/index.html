@@ -17,11 +17,23 @@
   /* ---------- HUD: a dedicated bottom band. The field is rendered ABOVE it, so the
        controls cannot occlude the battlefield, by construction. ---------- */
   #hud{position:fixed;left:0;right:0;bottom:0;height:104px;display:flex;flex-direction:row;
-       align-items:center;justify-content:space-between;gap:6px;padding:5px;
+       align-items:center;align-items:safe center;justify-content:space-between;gap:6px;padding:5px;
        pointer-events:none;z-index:10}
   #hud.right{flex-direction:row-reverse}
   #hud .box{pointer-events:auto;background:rgba(8,11,16,.82);border:1px solid rgba(232,226,214,.14);
        border-radius:7px;padding:5px 6px;backdrop-filter:blur(6px)}
+  /* The weapon list is BOUNDED and scrollable, so the HUD stops depending on how many weapons exist.
+     19 chips in a two-column grid is ten rows: the cluster measured 497px tall inside a 386px
+     window, and with align-items:center that overflow went BOTH ways — the stat row landed at -64,
+     off the top of the screen. Same failure as the armory grid's align-content:center. Every new
+     weapon used to make this worse; now it cannot. */
+  /* The band is 104px and its content is no longer that size: measured, the stat row is 37px and
+     the catalogue was 62px, so the box came to 117 and — with align-items:center — the overflow went
+     BOTH ways: 6px off the bottom of the screen and 6px off the top. In the band the catalogue is
+     therefore a single horizontally-scrolling strip: it fits the budget exactly, and a sideways
+     swipe is the natural gesture on a phone. The column has vertical room and keeps its grid. */
+  #weapons{height:40px;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;
+       display:flex;flex-wrap:nowrap;gap:3px;align-items:center;padding-bottom:2px}
   .cluster{display:flex;align-items:center;gap:6px}
   .stack{display:flex;flex-direction:column;gap:3px}
   #logBox{width:min(38vw,330px);height:76px;overflow:hidden}
@@ -29,7 +41,7 @@
   /* ---------- column mode: the HUD takes a side pillar, field takes the rest.
        This is what a 4:3 field leaves you: 19.5:9 minus 4:3 = two fat pillars. ---------- */
   #hud.column{top:0;bottom:0;height:auto;width:176px;flex-direction:column;
-       justify-content:center;align-items:stretch;gap:5px}
+       justify-content:safe center;align-items:safe center;gap:5px}
   #hud.column.left{left:0;right:auto}
   #hud.column:not(.left){left:auto;right:0}
   #hud.column .cluster{flex-direction:column;align-items:stretch;gap:5px}
@@ -40,7 +52,10 @@
   #hud.column .stat .v{font-size:15px}
   #hud.column .stat .k{font-size:7.5px}
   #hud.column .nudge button{width:17px;height:13px;font-size:8px}
-  #hud.column #weapons{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+  /* the column has a whole screen edge to spend, so the catalogue gets more room there than in the
+     104px band — still bounded, still scrollable. */
+  #hud.column #weapons{display:grid;grid-template-columns:1fr 1fr;gap:3px;
+       height:auto;max-height:96px;overflow-x:hidden;overflow-y:auto;flex-wrap:wrap}
   #hud.column .chip{text-align:center;padding:4px 2px}
   #hud.column #logBox{height:auto;max-height:58px}
   #hud.column .ctl{flex-direction:column;align-items:stretch}
@@ -332,8 +347,8 @@ const WEAPONS = [
   // for 20 and Smoke Tracers at $500 for 10: a 100x premium for a trail that stays on screen,
   // which is the entire difference between the two. Scaled here to a fortieth of a Missile,
   // because the turn is the cost and the price only has to be non-zero.
-  {name:'TRACER',   r:0,  dmg:0,  price:2, trace:true},
-  {name:'SMOKE TRC',r:0,  dmg:0,  price:8, trace:true, smoke:true},
+  {name:'TRACER',   r:0,  dmg:0,  price:2, trace:true, cat:'standard'},
+  {name:'SMOKE TRC',r:0,  dmg:0,  price:8, trace:true, smoke:true, cat:'standard'},
 
   /* --- Earth Destroying. Dirt is the target; a tank is never directly harmed. "Most of these
      weapons cannot directly harm a tank, though they can cause them to fall and take damage that
@@ -408,7 +423,13 @@ const state = {
   carves:[],          // every terrain-modifying op in order: the entire persistence story
   cash:START_CASH, aiCash:START_CASH,   // two bankrolls, both fed by damage dealt
   earned:0, aiEarned:0,                 // damage attributed this match, for the payout
-  ammo:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], armor:0,   // bought in the armory, spent in the match
+  // DERIVED FROM WEAPONS, never hand-written. This was a literal list of fifteen zeros, and
+  // appending four weapons left ammo[15..18] undefined — so buying a MIRV charged the credits and
+  // stored NaN, which reads back as "×0". The player's words: "didn't register some purchases but
+  // took credits". Exactly the shape of the positional indices that used to live in aiPickWeapon:
+  // a second structure that has to be kept in step with the catalogue by hand. Two of those existed;
+  // both are gone now.
+  ammo: WEAPONS.map(() => 0), armor:0,            // bought in the armory, spent in the match
   paid:false, payout:0, armory:true,    // a match settles exactly once
   wins:0, losses:0,                     // the only progression there is
   chutes:0, aiChutes:0,                 // accessories: consumed only when one actually opens
@@ -908,6 +929,18 @@ function renderArmory(){
     });
   });
   catHead('ACCESSORIES');
+  // Belt and braces against the class of bug that has now bitten three times today: a structure that
+  // has to be kept in step with the catalogue by hand (a short ammo list, positional weapon indices,
+  // and this — TRACER and SMOKE TRC had no category at all, so their cards simply vanished). Any
+  // weapon whose category is not listed above still gets a card, under its own heading.
+  const listed = CATS.map(c => c[0]);
+  const unfiled = WEAPONS.map((w,i) => [w,i]).filter(([w]) => listed.indexOf(w.cat) < 0);
+  if(unfiled.length){
+    catHead('UNFILED · ' + unfiled.length);
+    unfiled.forEach(([w,i]) => card(i, w.name, w.price,
+      w.trace ? 'no damage, no crater — it marks exactly where a shot lands'
+              : 'dmg ' + w.dmg + ' · blast ' + w.r, state.ammo[i] || 0, ''));
+  }
   card('s', 'ARMOR', SHIELD_PRICE, 'absorbs ' + SHIELD_ABSORB + ' damage before your hull',
        state.armor, state.cash < SHIELD_PRICE && state.armor === 0 ? 'poor' : '');
   card('c', 'PARACHUTE', CHUTE_PRICE,
@@ -1091,7 +1124,19 @@ function restore(sv){
   state.opponent = OPPONENTS[sv.opponent] ? sv.opponent : 'TOSSER';
   state.cash = sv.cash; state.aiCash = sv.aiCash;
   state.earned = sv.earned; state.aiEarned = sv.aiEarned;
-  state.ammo = (sv.ammo || [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).slice();
+  // No hardcoded length here either. This was a second list of fifteen zeros, so a save written
+  // before a weapon existed restored a SHORT array and the next purchase stored NaN anyway — the
+  // derived initialiser upstream did not close the hole on its own. padAmmo() fills the array to
+  // the catalogue's size and repairs any slot that is not a finite number.
+  state.ammo = (sv.ammo || []).slice();
+  padAmmo();
+  // And repair the LOADED copy too, because selfCheck compares state against sv: leaving null slots
+  // in sv would fail the check on a save that is now perfectly good, and a failing check stops
+  // autosaving — so a repaired save could never be written back. This is a known historical shape
+  // (a save from a build whose ammo list was shorter than the catalogue), not unknown corruption,
+  // which is why repairing it is right here and refusing the save would only cost the player a bank
+  // balance over a bug that was ours.
+  sv.ammo = state.ammo.slice();
   state.armor = sv.armor; state.paid = sv.paid;
   state.payout = sv.payout; state.armory = !!sv.armory;
   state.wins = sv.wins; state.losses = sv.losses;
@@ -1427,7 +1472,19 @@ function renderOver(){
     '<br>payout <b>+' + state.payout + ' CR</b> · bank <b>' + state.cash + ' CR</b>' +
     '<br>record <b>' + state.wins + 'W · ' + state.losses + 'L</b>';
 }
+// Repair any save written before a weapon existed. A missing or NaN slot becomes 0 rather than
+// poisoning arithmetic forever — NaN is precisely what makes "charged but not registered" possible,
+// so it is worth killing at the door instead of trusting every future edit to keep the array in step.
+// (JSON round-trips NaN to null, so a reloaded bad save arrives as null, not NaN. Both are caught.)
+function padAmmo(){
+  for(let i=0;i<WEAPONS.length;i++){
+    const v = state.ammo[i];
+    if(typeof v !== 'number' || !isFinite(v)) state.ammo[i] = 0;
+  }
+  state.ammo.length = WEAPONS.length;
+}
 function endShot(landX, how){
+  padAmmo();                       // a save that predates a weapon heals here, before any HUD reads it
   const who = proj.owner, w = proj.w;
   const tgt = who === 'player' ? enemy : player;
   state.log.unshift({
