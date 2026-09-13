@@ -964,3 +964,55 @@ running* — or the assertion has to be made at a level the autosave cannot reac
 therefore proven by unit-testing `readSave()` directly, plus `restore()` and `showScreen()` in
 isolation: a v11 save with `armory: true` loads as `screen: 'armory'`, the migrated keys match
 `snapshot()` exactly (35 keys, no differences), and the armory is shown.
+
+
+---
+
+## The slider scheme: both axes horizontal (2026-09-12)
+
+Variant C was angle-across / power-up. The problem with that is not taste, it is geometry: vertical
+travel is the thing this game has least of. In the **wide** field the HUD band is **104px** tall, while
+the same control had ~386px in the **4:3** column — so one of the two field modes was always going to
+be the awkward one. One axis for both means the scheme reads and behaves the same in either layout, and
+the gesture is the same gesture twice: **drag across to set the value.**
+
+```
+ANGLE                    45°
+[=====|          ]              ← 32px rail, knob and fill
+POWER  520        WIND +74
+[========|      ]               ← same gesture, same direction: left 0 → right 1000
+```
+
+- **Identical mapping on both rails**, verified by sweeping each at 0/25/50/100% of its width:
+  angle → `1° / 46° / 91° / 180°`, power → `0 / 250 / 500 / 1000`. Knob position and fill width agree
+  with the number (power 520 → both 52%).
+- **Precision is unchanged.** A rail is about 3 units per pixel, so the steppers remain the way to
+  land an exact figure. The rail is for coarse aiming, the steppers for the last few units — the same
+  division the split pad already had.
+- **The value is written on the rail**, right where the thumb is, and the wind moved up beside POWER
+  instead of occupying a row of its own.
+- **Both rails got a fill and a knob** — previously the angle rail had only a knob and the power rail
+  only a fill, so they did not read as the same kind of control.
+
+### Measured, not assumed
+
+The first attempt overflowed the wide-mode band by 13px, and the second by 5 — both caught by
+measurement, and both the same clipping class that has bitten this project twice. The arithmetic that
+settles it, in the 104px band:
+
+| | content height |
+|---|---|
+| gap 6 + 34px tracks | 98px → **5px over** |
+| gap 2 + 32px tracks | **88px → 5px inside** ✓ |
+
+The rail *block* (label 10 + gap 1 + track 32) lands at 43px, and the knob overhangs it to 40px, so the
+grab affordance is close to the 44px target; `@media (max-height:430px)` shrinks the tracks to 26px for
+a short window, the same breakpoint the armory uses. Verified in the wide mode: **0 elements past the
+band, 0 past the viewport.**
+
+### One thing found while measuring, and left alone
+
+The `FIRE` button is 34px and the weapon chips render close to the band's bottom edge. Nothing is
+clipped at 1280×577 and no scroll container is involved, so this is not a defect today — but on a
+narrower window those chip rows are the thing to watch, and they belong in the real-device pass rather
+than in this change.

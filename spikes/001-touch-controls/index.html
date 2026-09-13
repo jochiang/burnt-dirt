@@ -60,7 +60,7 @@
   #hud.column #logBox{height:auto;max-height:58px}
   #hud.column .ctl{flex-direction:column;align-items:stretch}
   #hud.column #pad{width:100%;height:62px}
-  #hud.column #angleTrack{width:100%}
+  #hud.column #angleTrack, #hud.column #pwrTrack{width:100%}
   #hud.column #fire{width:100%;height:34px}
   #hud.column #logBox{width:auto}
   .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -84,16 +84,22 @@
        display:flex;align-items:center;justify-content:center;font-size:7.5px;color:#c9975a;
        text-align:center;line-height:1.3;touch-action:none}
   #pad.drag{border-style:solid;background:rgba(255,180,84,.14)}
-  #bars{display:none;flex-direction:column;gap:5px;justify-content:space-between}
-  #angleTrack{position:relative;width:126px;height:24px;border-radius:5px;
+  /* Both controls are HORIZONTAL. They used to be one of each — angle across, power up — which
+     meant the power slider needed vertical travel, and vertical travel is the thing this game has
+     least of: the HUD band in the wide field is 104px tall, while the same control had 386px in the
+     4:3 column. One axis for both means the scheme looks and behaves the same in either layout, and
+     the gesture is the same gesture twice: drag across to set the value. */
+  #bars{display:none;flex-direction:column;gap:2px;justify-content:center}
+  .rail{display:flex;flex-direction:column;gap:1px}
+  .railLbl{display:flex;justify-content:space-between;align-items:baseline;gap:6px;
+       font-size:7.5px;letter-spacing:.12em;color:#8b9bb0}
+  .railLbl b{color:#ffb454;font-size:8.5px;letter-spacing:0}
+  #angleTrack,#pwrTrack{position:relative;width:126px;height:32px;border-radius:6px;
        background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);touch-action:none}
-  #angleKnob{position:absolute;top:-3px;width:9px;height:32px;margin-left:-4.5px;border-radius:3px;
-       background:#ffb454;box-shadow:0 0 8px rgba(255,180,84,.6)}
-  #pwrWrap{display:flex;gap:6px;align-items:center}
-  #pwrTrack{position:relative;width:24px;height:54px;border-radius:5px;
-       background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);touch-action:none}
-  #pwrFill{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,#7a3c14,#ffb454);
-       border-radius:4px;height:50%}
+  #angleFill,#pwrFill{position:absolute;left:0;top:0;bottom:0;border-radius:5px;width:50%;
+       background:linear-gradient(90deg,#5c2e10,#ffb454);pointer-events:none}
+  #angleKnob,#pwrKnob{position:absolute;top:-4px;bottom:-4px;width:9px;margin-left:-4.5px;
+       border-radius:3px;background:#ffb454;box-shadow:0 0 8px rgba(255,180,84,.6);pointer-events:none}
   .trackLbl{font-size:7.5px;letter-spacing:.12em;color:#8b9bb0}
 
   #weapons{display:flex;gap:3px;flex-wrap:wrap}
@@ -157,6 +163,12 @@
   /* A windowed phone browser is short — toolbars can eat 100px of a 390px landscape height.
      Tighten the furniture so the armory still fits, and let the scroll above absorb the rest. */
   @media (max-height:430px){
+    /* A windowed phone browser is short, and the wide field's HUD band shrinks with it. The rails
+       give up height first: the block stays over 40px, which is still a thumb target, while the
+       labels and gaps tighten. */
+    #bars{gap:1px}
+    #angleTrack,#pwrTrack{height:26px}
+    .rail{gap:1px}
     #armory,#setup{gap:4px;padding:6px}
     #armGrid{gap:5px}
     .card{padding:6px 8px;gap:4px}
@@ -303,16 +315,13 @@
     <div class="ctl">
       <div id="pad">DRAG<br>X · ANGLE<br>Y · POWER</div>
       <div id="bars">
-        <div>
-          <div class="trackLbl">ANGLE</div>
-          <div id="angleTrack"><div id="angleKnob"></div></div>
+        <div class="rail">
+          <div class="railLbl"><span>ANGLE</span><b id="angleVal">45°</b></div>
+          <div id="angleTrack"><div id="angleFill"></div><div id="angleKnob"></div></div>
         </div>
-        <div id="pwrWrap">
-          <div>
-            <div class="trackLbl">PWR</div>
-            <div id="pwrTrack"><div id="pwrFill"></div></div>
-          </div>
-          <div class="trackLbl" id="windLbl">WIND</div>
+        <div class="rail">
+          <div class="railLbl"><span>POWER <b id="pwrVal">520</b></span><span id="windLbl">WIND</span></div>
+          <div id="pwrTrack"><div id="pwrFill"></div><div id="pwrKnob"></div></div>
         </div>
       </div>
       <div id="fireCol">
@@ -2036,12 +2045,14 @@ function setAngleFromX(clientX){
 pwrTrack.addEventListener('pointerdown', e => {
   if(!canAim()) return;
   try { pwrTrack.setPointerCapture(e.pointerId); } catch(_) {}
-  sdrag = 'p'; setPowerFromY(e.clientY);
+  sdrag = 'p'; setPowerFromX(e.clientX);
 });
-pwrTrack.addEventListener('pointermove', e => { if(sdrag === 'p') setPowerFromY(e.clientY); });
-function setPowerFromY(clientY){
+pwrTrack.addEventListener('pointermove', e => { if(sdrag === 'p') setPowerFromX(e.clientX); });
+// Same gesture as the angle rail, same axis, same direction: left is 0, right is 1000. A rail is
+// about 3 units per pixel, so the steppers below remain the way to land an exact number.
+function setPowerFromX(clientX){
   const r = pwrTrack.getBoundingClientRect();
-  player.power = clamp(Math.round((1 - (clientY - r.top)/r.height)*1000), 0, 1000);
+  player.power = clamp(Math.round((clientX - r.left)/r.width*1000), 0, 1000);
   haptic(); syncHud();
 }
 ['pointerup','pointercancel'].forEach(ev => document.addEventListener(ev, () => { sdrag = null; }));
@@ -2178,7 +2189,11 @@ function syncHud(){
   $('hapticLbl').textContent = HAS_VIB ? 'detents 10°/50' : 'NO HAPTICS';
   $('hapticLbl').style.color = HAS_VIB ? '#6d7c90' : '#ff8a6a';
   $('angleKnob').style.left = ((player.angle-1)/179*100) + '%';
-  $('pwrFill').style.height = (player.power/10) + '%';
+  $('angleFill').style.width = ((player.angle-1)/179*100) + '%';
+  $('pwrKnob').style.left = (player.power/10) + '%';
+  $('pwrFill').style.width = (player.power/10) + '%';
+  $('angleVal').textContent = player.angle + '°';
+  $('pwrVal').textContent = player.power;
   $('windLbl').textContent = 'WIND ' + (state.wind > 0 ? '+' : '') + state.wind;
   $('log').innerHTML = state.log.map(e => {
     const err = e.err === null ? '—'
