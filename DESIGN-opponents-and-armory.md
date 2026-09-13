@@ -542,3 +542,84 @@ the player. **Catalog price fitting is deferred to playtesting** (§4.2) — whi
 instrumentation (§4.5) from a nicety to a prerequisite. **Buried tanks take no damage** and **must
 still be able to fire** (§3.5) — together these make burial a delay rather than a stun-lock, which is
 what lets it be punished by turns instead of hit points.
+
+
+---
+
+## 9. The new-game screen, and terrain styles
+
+Decided 2026-09-12. The armory is doing two jobs and they pull in opposite directions: it is a *shop*
+(spend your bank, keep it between matches) and it is also where a *match is defined*. Those are
+different kinds of decision — one is a purchase you carry, the other is a scenario you choose — and on
+one screen neither reads clearly.
+
+### 9.1 The split, and the flow
+
+- **Match settings** — free, not owned, define the scenario: **opponent**, **enemy count** (stretch),
+  **terrain style**, **Arms Level**.
+- **Purchases** — bought with your bank, persist across matches: weapons, armour, chutes.
+
+Flow: **NEW GAME → ARMORY → MATCH**. The setup screen is the entry point when no match is running, and
+the armory opens it too (a `SETUP` button) so walking back to adjust something never costs you your
+shopping. Same principle as surviving a phone lock: nothing on a setup screen should be destroyable by
+a tap you did not mean.
+
+**Amends an earlier decision.** §4 recorded Arms Level as *living in the armory*. It is a setup gate
+that filters the catalogue, not something you buy, so it moves to the setup screen — and this doc is
+corrected rather than left contradicting itself.
+
+**Identity and persistence.** Every setting joins the match's identity exactly as the seed and
+`opponent` do today: written to the save, and **covered by the invariant**. `SETTLED` already carries
+`proj`/`extras`; it gains `terrainStyle`, `armsLevel` and `enemyCount`. A setting cannot be changed
+mid-match: changing one starts a new match. That is the part that *might* be breaking, and the
+invariant is how it gets found rather than guessed.
+
+### 9.2 Terrain styles — and the finding that changes the sizing
+
+Read the generator before designing this, and the split is not where you would expect it. **Hillier is
+trivial. Caves are mostly already supported. The load-bearing part is one small function.**
+
+- **Hillier is a parameter.** `genTerrain` is midpoint displacement: `surf[m] = (a+b)/2 ± rough*H*0.19`,
+  clamped to the band `[0.22H, 0.90H]`, then smoothed. Relief, roughness, the clamp and the feature mix
+  (towers, pits, mounds, blobs) are all already parameters. A **style is a preset over them** — which is
+  also the right UI on a phone: one row of four named buttons, not a wall of sliders.
+- **Underground voids already work.** The generator *already* stamps voids below the surface
+  (`setBlob(..., 0)` at `surf[cx]+22`), and the physics handles them correctly because `surf[x]` is
+  computed as *the first solid cell from the sky down* — not "the surface". So a void is transparent to
+  it: it walks straight past the hole and finds the floor. Caverns need **more of the same stamps**, not
+  a new engine.
+- **Overhangs are the real gap.** A column of rock-above-air is the one shape the model cannot express
+  right now, because the support is read as the first solid *from the top* — so a tank under an
+  overhang would be held up by the overhang's roof. The fix is small and it simplifies something else:
+  `groundUnder()` should ask **the first solid at or below the tank's own feet** instead of `surf[x]`.
+  That makes overhangs work *and* deletes the "a buried tank is not lifted" special case in
+  `dropTanks()` — with a support query measured from the tank, a dirt dome above it is no longer
+  mistaken for ground under it, so the guard becomes unnecessary.
+- **Two consequences worth designing for, not discovering.**
+  1. **Cave maps start with tanks under roofs**, so `buried()` is true on turn one and the Riot Charge
+     and dig-out rules are load-bearing from the first turn. That is either the best thing about the
+     style or a problem, and playtesting decides.
+  2. **Spawn must be cave-aware.** `placeTanks()` puts tanks on the surface; in a cavern the surface is
+     the ceiling. Tanks need a floor to stand on — the first solid at or below the spawn column's
+     intended height.
+- **The AI needs nothing.** It solves by stepping a projectile through `solid()`, so caves, overhangs
+  and tunnels are already inside its model of the world. That is a real dividend from the way the
+  solver was built.
+
+**Styles proposed:** `OPEN` · `ROLLING` · `STEEP` · **`CAVERN`** — the first three as relief presets, the
+fourth switching on void stamping plus the overhang-capable support query. Terrain style joins the seed
+as the terrain's identity, so matches stay reproducible and the invariant stays meaningful.
+
+### 9.3 Sizing, honestly
+
+| item | cost | why |
+|---|---|---|
+| the new-game screen | **small** | a form, a saved phase, three fields, moving a row out of the armory |
+| hillier styles | **small** | parameters that already exist |
+| cavern style | **medium** | void stamping is free; the work is the support query, the spawn rule, and living with the burial consequences |
+| **additional enemies** | **large** | `player`/`enemy` is baked through the turn loop, win condition, per-AI bracket memory, `aiCash`/`aiEarned`, payout attribution, the shot log and the schema |
+
+Additional enemies is the one that is not a screen. It is an array-of-tanks refactor with a round-robin
+turn queue — very doable, and the largest single change since the project started. **Computer skill
+stays global** (one rung for the whole match), decided 2026-09-12: simpler, and it keeps the ladder
+reading as "how hard is this match".
