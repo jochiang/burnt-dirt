@@ -1016,3 +1016,18 @@ The `FIRE` button is 34px and the weapon chips render close to the band's bottom
 clipped at 1280×577 and no scroll container is involved, so this is not a defect today — but on a
 narrower window those chip rows are the thing to watch, and they belong in the real-device pass rather
 than in this change.
+
+
+### When the deploy stalls: clear the concurrency lock
+
+Four pushes in quick succession left the Pages workflow with runs stuck in `queued`/`pending` and the
+live site four commits behind — while `gh run list` showed the *oldest* stuck run holding the slot.
+This is a known GitHub bug (`concurrency: group: pages` serialises runs and a stalled run blocks the
+queue behind it). **The remedy is to cancel the stale queued runs** — `gh run cancel <id>` on each
+non-completed run — after which the newest run starts immediately. Verified: cancelling the two stuck
+runs took the newest from `pending` to `completed success`, and the served bytes then matched local
+exactly.
+
+Worth knowing because the symptom looks like a caching problem and isn't: check
+`gh run list --json status,conclusion` before blaming the CDN. If the newest run is not `completed
+success`, nothing is wrong with the code and nothing needs re-pushing.
