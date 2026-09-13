@@ -894,3 +894,49 @@ fall handler and the firing check all call it.
 Verified: the covering descends monotonically 110→160 over five shots with a crater at the barrel every
 time, Clod/Ball/Ton dig out in 3/5/10, the Riot Charge still frees in one turn, a punch-through leaves
 the tank resting on the floor and alive, and ordinary falls are unaffected.
+
+
+---
+
+## The new-game screen (2026-09-12)
+
+The armory was doing two jobs that pull in opposite directions: a *shop* (spend your bank, keep it
+between matches) and the place a *match gets defined* (who you fight). Different kinds of decision, so
+they are now different screens.
+
+**Flow: NEW GAME → ARMORY → MATCH.** The setup screen is the entry point when no match is running, and
+the armory has a `← SETUP` button so walking back to change something never costs you your shopping.
+`NEW` starts at the setup screen, not the armory.
+
+- **Moved out of the armory:** the opponent roster. It is a match setting, not a purchase.
+- **Stated, not faked:** `ARMS LEVEL`, `TERRAIN`, `COMPUTER SKILL` appear as the current *facts*
+  ("every weapon and accessory is on sale", "the only generator built so far", "one rung for the whole
+  match"). Each becomes a real control with the work that makes it real — a dead button would be worse
+  than none.
+- **Persistence:** which screen you were on is part of the save, so locking the phone in the armory
+  comes back to the armory and a lock mid-match comes back to the match with the turn intact.
+
+### The first schema migration (v11 → v12)
+
+`armory: true|false` became `screen: 'setup'|'armory'|'match'`, and rather than refusing a v11 save the
+reader **carries it forward**: `armory ? 'armory' : 'match'`. The mapping is total — the old boolean
+only ever meant those two things — and a schema change is not a reason to throw away someone's bank
+balance, record and match in progress. It runs *before* the version check and before the key-shape
+check, because the shape check compares against `snapshot()` exactly and the migration is what makes
+the keys line up again. A v9 save is still refused, so the migration does not over-reach.
+
+### Two mistakes worth recording, both in the verification rather than the feature
+
+1. **`readSave()`'s `catch(e){ return null; }` hid its own failure.** When the reader throws, the save
+   silently becomes *no save* and the player is told nothing. It now logs the error and says so on the
+   HUD. A swallowed exception in the save path is the same class of fault as a readout that disagrees
+   with the engine.
+2. **Two end-to-end tests were invalid because the app overwrote the fixture.** Writing a synthetic
+   v11 save from a running page and then reloading does not test the migration: the app's own
+   lock-survival autosave fires on the way out and writes the *current* state over the fixture. The
+   migration had to be proven by unit-testing `readSave()` directly, plus `restore()` and
+   `showScreen()` in isolation — at which point the whole chain passes: a v11 save with `armory: true`
+   loads as `screen: 'armory'` and the armory is shown.
+
+Verified: the flow both ways, the opponent pick sticking, 21 cards, the invariant at v12 with an empty
+mismatch list, the round-trip, and the migration's both branches with a v9 still refused.

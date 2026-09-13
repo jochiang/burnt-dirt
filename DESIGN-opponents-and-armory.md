@@ -553,6 +553,10 @@ Decided 2026-09-12. The armory is doing two jobs and they pull in opposite direc
 different kinds of decision — one is a purchase you carry, the other is a scenario you choose — and on
 one screen neither reads clearly.
 
+**BUILT 2026-09-12** — the screen, the flow, the persistence and the **v11 → v12 migration**. Terrain
+style and Arms Level have their home here and are stated as current facts rather than offered as
+controls that do not exist yet. Additional enemies remains untouched.
+
 ### 9.1 The split, and the flow
 
 - **Match settings** — free, not owned, define the scenario: **opponent**, **enemy count** (stretch),

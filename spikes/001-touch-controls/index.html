@@ -137,9 +137,9 @@
   #chuteStat .v{color:#8b9bb0}
   #chuteStat.on .v{color:#7fd4ff}
   #chuteStat.none .v{color:#4a5260;cursor:default}
-  #armory{position:fixed;inset:0;display:none;flex-direction:column;gap:6px;padding:8px;
+  #armory,#setup{position:fixed;inset:0;display:none;flex-direction:column;gap:6px;padding:8px;
        background:#05070b;z-index:30;overflow-y:auto}
-  #armHead{display:flex;align-items:baseline;gap:10px}
+  #armHead,#scrHead{display:flex;align-items:baseline;gap:10px}
   #armTitle{font-size:14px;letter-spacing:.3em;color:#ffb454;font-weight:700}
   #armCash{font-size:17px;color:#8ce37f;font-weight:700;font-variant-numeric:tabular-nums}
   #armRec{font-size:8.5px;color:#c3cad4;margin-left:14px}
@@ -157,7 +157,7 @@
   /* A windowed phone browser is short — toolbars can eat 100px of a 390px landscape height.
      Tighten the furniture so the armory still fits, and let the scroll above absorb the rest. */
   @media (max-height:430px){
-    #armory{gap:4px;padding:6px}
+    #armory,#setup{gap:4px;padding:6px}
     #armGrid{gap:5px}
     .card{padding:6px 8px;gap:4px}
     #armFoot{gap:8px}
@@ -172,6 +172,17 @@
        background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);color:#c3cad4}
   .opp.on{background:#ffb454;color:#101418;border-color:#ffb454;font-weight:700}
   #armOppBlurb{font-size:8.5px;color:#8b9bb0}
+
+  /* ---------- the new-game screen: match settings, which are not purchases ---------- */
+  #scrTitle{font-size:14px;letter-spacing:.3em;color:#ffb454;font-weight:700}
+  #scrSub{font-size:8.5px;color:#8b9bb0}
+  #scrFacts{display:flex;flex-direction:column;gap:5px;max-width:660px}
+  .fact{display:flex;align-items:baseline;gap:8px;padding:5px 8px;border-radius:6px;
+       background:rgba(255,255,255,.045);border:1px solid rgba(232,226,214,.12)}
+  .fact .fk{font-size:8.5px;letter-spacing:.14em;color:#8b9bb0;min-width:84px}
+  .fact .fv{font-size:12px;font-weight:700;color:#e8e2d6;letter-spacing:.05em}
+  .fact .fn{font-size:8.5px;color:#6f7885;margin-left:auto;text-align:right}
+  #scrFoot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:auto}
   .card{background:rgba(255,255,255,.045);border:1px solid rgba(232,226,214,.14);
        border-radius:8px;padding:8px 9px;display:flex;flex-direction:column;gap:5px}
   .card.free{border-color:rgba(140,227,127,.4)}
@@ -234,6 +245,24 @@
   </div>
 </div>
 
+<div id="setup">
+  <div id="scrHead">
+    <span id="scrTitle">NEW GAME</span>
+    <span id="scrSub">who you fight · and under what rules</span>
+  </div>
+  <div id="armOppRow">
+    <span class="tiny">OPPONENT</span>
+    <div id="armOpp"></div>
+    <span id="armOppBlurb"></span>
+  </div>
+  <div id="scrFacts"></div>
+  <div id="scrFoot">
+    <button id="scrFs" class="big alt">⛶ FULLSCREEN</button>
+    <button id="scrGo" class="big">TO THE ARMORY →</button>
+    <span class="tiny">settings define the match · free · they carry into the save</span>
+  </div>
+</div>
+
 <div id="armory">
   <div id="armHead">
     <span id="armTitle">ARMORY</span>
@@ -241,13 +270,9 @@
     <span id="armRec"></span>
     <span id="armLoad"></span>
   </div>
-  <div id="armOppRow">
-    <span class="tiny">OPPONENT</span>
-    <div id="armOpp"></div>
-    <span id="armOppBlurb"></span>
-  </div>
   <div id="armGrid"></div>
   <div id="armFoot">
+    <button id="armSetup" class="big alt">← SETUP</button>
     <button id="armFs" class="big alt">⛶ FULLSCREEN</button>
     <button id="armStart" class="big">START MATCH</button>
     <span class="tiny">buy before the match · ammo carries in · nothing is purchasable mid-match</span>
@@ -430,7 +455,7 @@ const state = {
   // a second structure that has to be kept in step with the catalogue by hand. Two of those existed;
   // both are gone now.
   ammo: WEAPONS.map(() => 0), armor:0,            // bought in the armory, spent in the match
-  paid:false, payout:0, armory:true,    // a match settles exactly once
+  paid:false, payout:0, screen:'setup',  // setup | armory | match — which screen you were on
   wins:0, losses:0,                     // the only progression there is
   chutes:0, aiChutes:0,                 // accessories: consumed only when one actually opens
   chuteArmed:true,                      // "By default, parachutes are deployed"
@@ -833,19 +858,60 @@ function placeTanks(){
 }
 function tankCy(t){ return t.y - TANKH*0.55; }
 
+/* ---------- the opponent roster ----------
+   Rendered on the SETUP screen, not the armory: who you fight is a match setting, not a purchase. */
+function renderOpponents(){
+  const row = $('armOpp'); row.innerHTML = '';
+  OPP_ORDER.forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'opp' + (state.opponent === k ? ' on' : '');
+    b.textContent = k;
+    b.onclick = () => { state.opponent = k; newRound(false); };
+    row.appendChild(b);
+  });
+  $('armOppBlurb').textContent = OPPONENTS[state.opponent].blurb;
+}
 /* ---------- the armory ----------
    The buy phase does not fit in a two-minute gap, so it lives outside the match. What you
    carry in is stock: you commit to a loadout before you know the map or the wind, and every
    shot you spend is a decision you already paid for. That is what makes the wind cost money. */
-function openArmory(){
-  state.armory = true;
-  $('armory').style.display = 'flex';
-  renderArmory(); syncHud(); save('armory');
+/* ---------- screens ----------
+   Three of them, exactly one up at a time: the setup (match settings), the armory (purchases), and
+   the match itself. A shop and a scenario are different kinds of decision, so they are different
+   screens — and which one you were on is SAVED, so locking the phone in the armory and coming back
+   lands you in the armory. Same rule the match already follows.
+   A setting cannot be changed mid-match: the setup screen only exists when a match is not running. */
+function showScreen(name){
+  state.screen = name;
+  $('setup').style.display  = name === 'setup'  ? 'flex' : 'none';
+  $('armory').style.display = name === 'armory' ? 'flex' : 'none';
+  if(name === 'setup')  renderSetup();
+  if(name === 'armory') renderArmory();
+  syncHud();
+  save('screen: ' + name);
 }
+function openSetup(){ showScreen('setup'); }
+function openArmory(){ showScreen('armory'); }
 function startMatch(){
-  state.armory = false;
+  state.screen = 'match';                        // nothing to show: the canvas is the match
+  $('setup').style.display = 'none';
   $('armory').style.display = 'none';
+  save('deploy');
   newRound(false);
+}
+function fact(k, v, note){
+  return '<div class="fact"><span class="fk">' + k + '</span><span class="fv">' + v +
+         '</span><span class="fn">' + note + '</span></div>';
+}
+// The settings screen states the current rules rather than offering controls that do not exist yet.
+// Arms Level and terrain style are decided and have a home here; each lands with the work that makes
+// it real, and until then this says what is actually true instead of showing a dead button.
+function renderSetup(){
+  renderOpponents();
+  $('scrFacts').innerHTML =
+    fact('ARMS LEVEL', 'ALL ARMS', 'every weapon and accessory is on sale') +
+    fact('TERRAIN', 'ROLLING', 'the only generator built so far') +
+    fact('COMPUTER SKILL', 'ONE RUNG', 'the whole match shares the opponent above');
 }
 function buy(i, delta){
   if(i === 0) return;                                  // the free shell is not for sale
@@ -964,15 +1030,7 @@ function renderArmory(){
   // The opponent is a SETUP choice, so it lives here with the rest of the setup. Picking one rolls
   // a new round: the opponent is part of the match's identity, and swapping it mid-flight would be
   // a match resumed against a different AI than the one that started it.
-  const row = $('armOpp'); row.innerHTML = '';
-  OPP_ORDER.forEach(k => {
-    const b = document.createElement('button');
-    b.className = 'opp' + (state.opponent === k ? ' on' : '');
-    b.textContent = k;
-    b.onclick = () => { state.opponent = k; newRound(false); };
-    row.appendChild(b);
-  });
-  $('armOppBlurb').textContent = OPPONENTS[state.opponent].blurb;
+
   $('armStart').disabled = false;
 }
 
@@ -981,7 +1039,9 @@ function renderArmory(){
    literal carve ops, and the tank/AI/log state. The 120,000-byte mask is never stored.
    What it takes to survive a phone lock or a discarded background tab fits in ~1KB. */
 const SAVE_KEY = 'scorched.save.v1';
-const SAVE_VERSION = 11;  // v11: a MIRV keeps warheads in flight after the primary has landed, so
+const SAVE_VERSION = 12;  // v12: the screen (setup | armory | match) replaces the armory
+                          // boolean, so a match-defining screen can exist. v11 migrates forward.
+                          // v11: a MIRV keeps warheads in flight after the primary has landed, so  // v11: a MIRV keeps warheads in flight after the primary has landed, so
                           // the save carries a list of them. v10: terrain ops are TYPED.
                           // v10 (cont): a crater and a deposit are different
                           // things now), so an older carve list cannot be replayed.
@@ -999,7 +1059,7 @@ let saveOK = true;
    checked rather than assumed. */
 const SETTLED = ['v','field','side','variant','seed','wind','round','wIdx',
                  'tanks','ai','carves','log','ghost','smokes','opponent','proj','extras',
-                 'cash','aiCash','earned','aiEarned','ammo','armor','paid','payout','armory','wins','losses',
+                 'cash','aiCash','earned','aiEarned','ammo','armor','paid','payout','screen','wins','losses',
                  'chutes','aiChutes','chuteArmed','chuteThresh'];
 let saveBad = [];
 function selfCheck(sv){
@@ -1024,7 +1084,7 @@ function snapshot(){
     cash: state.cash, aiCash: state.aiCash,
     earned: state.earned, aiEarned: state.aiEarned,
     ammo: state.ammo, armor: state.armor,
-    paid: state.paid, payout: state.payout, armory: state.armory,
+    paid: state.paid, payout: state.payout, screen: state.screen,
     wins: state.wins, losses: state.losses,
     chutes: state.chutes, aiChutes: state.aiChutes,
     chuteArmed: state.chuteArmed, chuteThresh: state.chuteThresh,
@@ -1074,6 +1134,17 @@ function readSave(){
     if(!raw) return null;
     const sv = JSON.parse(raw);
     if(!sv || !FIELDS[sv.field]) return null;
+    // ---- migrations ----
+    // A schema change is not a reason to throw away someone's bank balance, record and match in
+    // progress. The mapping here is total — the old boolean only ever meant "in the armory" or "in
+    // the match" — so the save is carried forward instead of refused. This runs BEFORE the version
+    // check and before the key-shape check, because the shape check compares against snapshot()
+    // exactly and the migration is what makes the keys line up again.
+    if(sv.v === 11 && sv.screen === undefined && 'armory' in sv){
+      sv.screen = sv.armory ? 'armory' : 'match';
+      delete sv.armory;
+      sv.v = 12;
+    }
     if(sv.v !== SAVE_VERSION){
       state.msg = 'SAVE v' + sv.v + ' ≠ v' + SAVE_VERSION + ' — STARTING FRESH';
       return null;
@@ -1089,7 +1160,14 @@ function readSave(){
       return null;
     }
     return sv;
-  } catch(e){ return null; }
+  } catch(e){
+    // A swallowed exception here is how a save silently becomes "no save": the migration runs, then
+    // the shape check throws for a reason nobody can see, the catch turns it into null, and the
+    // player is told nothing. Say what happened.
+    console.error('readSave failed:', e && e.message, e && e.stack);
+    state.msg = 'SAVE READ FAILED — ' + (e && e.message);
+    return null;
+  }
 }
 function applySide(){
   const hud = $('hud');
@@ -1143,7 +1221,7 @@ function restore(sv){
   // balance over a bug that was ours.
   sv.ammo = state.ammo.slice();
   state.armor = sv.armor; state.paid = sv.paid;
-  state.payout = sv.payout; state.armory = !!sv.armory;
+  state.payout = sv.payout; state.screen = sv.screen || 'match';
   state.wins = sv.wins; state.losses = sv.losses;
   state.chutes = sv.chutes; state.aiChutes = sv.aiChutes;
   state.chuteArmed = !!sv.chuteArmed; state.chuteThresh = sv.chuteThresh;
@@ -2134,7 +2212,11 @@ setVariant('A');
 const SAVED = readSave();                 // read before setField: it tells us which shape
 setField(SAVED ? SAVED.field : 'faithful', !SAVED);
 if(SAVED) restore(SAVED);
-$('newBtn').addEventListener('click', () => { newRound(false); openArmory(); });
+// A new game starts at the SETUP screen: settings first, then the shop, then the fight.
+$('newBtn').addEventListener('click', () => { newRound(false); openSetup(); });
+$('armSetup').addEventListener('click', openSetup);
+$('scrGo').addEventListener('click', openArmory);
+$('scrFs').addEventListener('click', () => $('armFs').click());   // one fullscreen implementation
 $('armStart').addEventListener('click', startMatch);
 $('chuteStat').addEventListener('click', () => {
   if(state.chutes <= 0) return;              // "if you have no parachutes, you may not change the state"
@@ -2143,7 +2225,12 @@ $('chuteStat').addEventListener('click', () => {
 });
 $('overArm').addEventListener('click', () => { $('over').style.display = 'none'; openArmory(); });
 $('overRematch').addEventListener('click', () => { $('over').style.display = 'none'; newRound(false); });
-if(!SAVED) openArmory();
+// Which screen to come back to is part of the save, so a phone lock in the armory returns to the
+// armory, and a lock mid-match returns to the match with the turn intact. This asks the STATE, not
+// `SAVED`: restore() has already put the right value there, a fresh start leaves the default, and
+// keying it off whether a save happened to load meant a migrated save could come back on the wrong
+// screen for reasons that had nothing to do with the screen.
+showScreen(state.screen);
 $('fieldBtn').addEventListener('click', () => {
   setField(state.field === 'faithful' ? 'wide' : 'faithful');
 });
@@ -2171,7 +2258,8 @@ window.__spike = {
   get salvoHold(){return salvoHold;},
   save, restore, selfCheck, snapshot, readSave, solid, dropTanks, groundUnder, buildWeapons,
   genTerrain, placeTanks, resize, render, syncHud, redrawTerrain, setField,
-  buy, buyShield, buyChute, bumpThresh, startMatch, openArmory, renderArmory, aiPickWeapon, roller,
+  buy, buyShield, buyChute, bumpThresh, startMatch, openArmory, openSetup, showScreen,
+  renderArmory, renderSetup, renderOpponents, aiPickWeapon, roller,
   OPPONENTS, OPP_ORDER, effectiveOpponent, aiRng, losClear, simShot, solvedShot, bracketShot,
   randomShot, SOLVERS, aimAngle,
   chuteOn, fallVis, get recording(){return recording;}, set recording(v){recording = v;},
