@@ -802,3 +802,51 @@ instead of silently.
 
 Verified after the fixes: 21 cards, 4 sections, **every weapon in the catalogue charges once and
 registers once**, zero NaN slots, and **nothing off-screen in either field mode**.
+
+
+---
+
+## Regression report — damage stopped registering (2026-09-12)
+
+### FIXED — every standard weapon carved craters and hurt nobody
+
+Reported from play as "damage appears to no longer register". Cause, in `explode()`:
+
+```js
+  carve(x, y, w.r);
+  state.fx.push({x, y, r:w.r, t:0});
+  if(w.earth){ endShot(...); return; }
+  endShot(Math.round(x), 'impact');     // ← the blast() call was never added here
+```
+
+When the specials were built, the damage loop moved out of `explode()` and into `blast()` — and the
+standard warheads were never given their call to it. Baby Missile, Missile, Baby Nuke, Nuke and the
+Roller (which routes through `explode()` via `roller()`) all carved correct craters and dealt zero
+damage. The specials were unaffected, because they *do* call `blast()`.
+
+Fixed by calling `blast(x, y, w.r, w.dmg, proj.owner)` on the standard path, with the `w.earth` crater
+branch kept separate and deliberately damage-free. Audited every `endShot()` in `explode()` afterwards:
+the only damage-free exits are tracer, dirt, Earth Destroying, MIRV dud, off-field, tunnel, the Riot
+wedge, and a buried burst — all intended.
+
+### The process failure, which is the part worth recording
+
+**My own regression check printed the symptom and I explained it away.** In the specials verification I
+ran:
+
+```
+regression_missile: {carves: 1, damage: 0}     regression_babymsl: {carves: 1, damage: 0}
+regression_tracer:  {carves: 0, damage: 0}     regression_digger:  {carves: 29, damage: 0}
+```
+
+Two of those four should have dealt damage and read 0. I read it as "the shot missed, it landed away
+from the target" and moved on — because among those four rows, 0 *is* the right answer for the tracer
+and the Digger, and that made the pattern look plausible. A test result that is *compatible* with
+success is not evidence of success. Every check in this file counted craters, and craters were still
+appearing, so nothing failed.
+
+`ladder.html` now drops every warhead point-blank on a tank and asserts the damage explicitly, with
+Earth weapons judged on damage that a fall does not explain.
+
+Verified after the fix: all nine damaging weapons hurt (14–100hp), and every deliberately harmless
+one deals exactly 0.

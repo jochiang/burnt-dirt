@@ -201,6 +201,34 @@ function run(){
        '<table><tr><td>MIRV fired too flat to split</td><td>' + dudCheck() + '</td></tr></table>' +
        '<p>A salvo is not over when the first warhead lands: the turn stays open until the last one is ' +
        'down, and a save taken mid-salvo resumes with the whole salvo still in the air.</p>';
+  // ---- damage actually registers ----
+  // This is the check whose absence let a whole class of bug through: every other table in this file
+  // counts craters, and craters kept appearing. Nothing asserted that a shell HURTS.
+  const dmgRows = [];
+  for(const [i, w] of S.WEAPONS.entries()){
+    if(w.self) continue;                       // the Riot family never flies; tested separately
+    S.recording=false; S.state.carves=[]; S.state.seed=950;
+    S.genTerrain(950); S.placeTanks(); S.recording=true;
+    S.state.phase='aim'; S.state.ammo.fill(0); S.extras=[]; S.state.wind=0;
+    const e = S.enemy, hp0 = e.hp, y0 = e.y;
+    S.proj = {x:e.x, y:e.y-16, vx:0.2, vy:2, path:[[e.x,e.y-16]], owner:'player', w, wIdx:i, t:0};
+    S.state.phase='flying';
+    let n=0; while((S.proj || S.extras.length) && n<6000){ S.stepProj(); n++; }
+    const dealt = Math.round(hp0 - e.hp), fell = Math.round(e.y - y0);
+    const direct = w.dmg > 0 && !w.earth && !w.deposits && !w.liquid && !w.trace;
+    const verdict = direct ? (dealt > 0 ? 'ok' : '<span class="bad">NO DAMAGE</span>')
+                           : (dealt === 0 ? 'ok'
+                             : (fell > 4 ? 'ok (fell ' + fell + 'px)'
+                                         : '<span class="bad">' + dealt + ' unexplained</span>'));
+    dmgRows.push('<tr><td>' + w.name + '</td><td>' + w.dmg + '</td><td>' + dealt + '</td><td>' +
+                 (direct ? 'must hurt' : 'no direct') + '</td><td>' + verdict + '</td></tr>');
+  }
+  h += '<h2>DAMAGE REGISTERS — DROPPED POINT-BLANK ON A TANK</h2><table>' +
+       '<tr><th>weapon</th><th>nominal</th><th>dealt</th><th>rule</th><th>verdict</th></tr>' +
+       dmgRows.join('') + '</table>' +
+       '<p>A weapon whose damage should land and does not is a failure, however many craters it ' +
+       'leaves. Earth weapons deal no direct damage by design but can still hurt you by dropping what ' +
+       'you are standing on, so their row is only wrong if damage appears that a fall does not explain.</p>';
   $('out').innerHTML = h;
 }
 addEventListener('load', () => setTimeout(run, 500));

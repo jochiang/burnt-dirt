@@ -1444,13 +1444,22 @@ function explode(x, y){
     for(const r of w.seq){ state.fx.push({x, y, r, t:0, col:'255,180,84'}); blast(x, y, r, w.dmg, proj.owner); }
     endShot(Math.round(x), 'leapfrog'); return;
   }
-  carve(x, y, w.r);
-  state.fx.push({x, y, r:w.r, t:0});
   if(w.earth){
     // Earth Destroying: removes dirt and nothing else. "Most of these weapons cannot directly harm
     // a tank, though they can cause them to fall and take damage that way."
+    carve(x, y, w.r);
+    state.fx.push({x, y, r:w.r, t:0});
     endShot(Math.round(x), 'crater'); return;
   }
+  /* The standard warheads — and the Roller, which routes through here via roller(). blast() carries
+     the crater AND the damage, and THIS CALL went missing when the damage loop was moved into
+     blast() for the specials: every ordinary weapon kept carving craters and hurting nobody. That
+     is the bug reported as "damage no longer registers".
+     The rule this file should have had all along: explode() may reach no endShot() without either
+     blasting, or being one of the deliberately harmless cases already returned above — a tracer,
+     a dirt weapon, or an Earth Destroying crater. */
+  blast(x, y, w.r, w.dmg, proj.owner);
+  state.fx.push({x, y, r:w.r, t:0});
   endShot(Math.round(x), 'impact');
 }
 function settle(){
