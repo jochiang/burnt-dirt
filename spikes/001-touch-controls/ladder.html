@@ -229,6 +229,45 @@ function run(){
        '<p>A weapon whose damage should land and does not is a failure, however many craters it ' +
        'leaves. Earth weapons deal no direct damage by design but can still hurt you by dropping what ' +
        'you are standing on, so their row is only wrong if damage appears that a fall does not explain.</p>';
+  // ---- where a buried burst is SEEN, and what happens at the bottom of the map ----
+  const buriedBurst = (() => {
+    S.recording=false; S.state.carves=[]; S.state.seed=981;
+    S.genTerrain(981); S.placeTanks(); S.recording=true;
+    S.state.phase='aim'; S.state.ammo.fill(0); S.extras=[]; S.state.wind=0;
+    const p = S.player;
+    S.deposit(p.x, p.y - 33, 66);
+    if(!S.buried(p)) return 'not buried';
+    const surf0 = S.surf[Math.round(p.x)];
+    const c0 = S.state.carves.length;
+    S.state.ammo[0]=99; S.state.wIdx=0; S.state.phase='aim';
+    S.fire('player'); let n=0; while(S.proj && n<4000){ S.stepProj(); n++; }
+    const ops = S.state.carves.slice(c0);
+    const barrel = ops.filter(o => Math.abs(o[1]-p.x) < 13 && Math.abs(o[2]-(p.y-4)) < 16).length;
+    let shots = 1;
+    for(let k=0;k<40 && S.buried(p);k++){
+      S.state.ammo[0]=99; S.state.wIdx=0; S.state.phase='aim';
+      S.fire('player'); let m=0; while(S.proj && m<4000){ S.stepProj(); m++; } shots++;
+    }
+    return 'impact at the barrel on the first shot: ' + (barrel > 0 ? 'yes' : '<span class="bad">NO</span>') +
+           ' &middot; covering descends from ' + surf0 + ' &middot; dug out in ' +
+           (S.buried(p) ? '<span class="bad">&gt;40 shots</span>' : shots + ' shots');
+  })();
+  const bottomOfMap = (() => {
+    S.recording=false; S.state.carves=[]; S.state.seed=980;
+    S.genTerrain(980); S.placeTanks(); S.recording=true;
+    S.state.phase='aim'; S.extras=[]; S.state.wind=0;
+    const e = S.enemy, y0 = Math.round(e.y), cx = Math.round(e.x);
+    for(let y=Math.round(e.y)+2; y<S.H+40; y+=6) S.carve(cx, y, 4);
+    const ok = e.y >= S.H-1;
+    return 'a punch-through under a tank: was y=' + y0 + ', now y=' + Math.round(e.y) +
+           ' (floor ' + S.H + ') &rarr; ' + (ok ? '<span class="ok">rests on the floor</span>'
+             : '<span class="bad">lifted to the nearest high ground</span>');
+  })();
+  h += '<h2>BURIAL AND THE FLOOR</h2><table>' +
+       '<tr><td>buried burst</td><td>' + buriedBurst + '</td></tr>' +
+       '<tr><td>bottom of the map</td><td>' + bottomOfMap + '</td></tr></table>' +
+       '<p>A buried shell must be SEEN to hit the barrel and must still dig you out; and a tank dropped ' +
+       'through the floor of a map must come to rest on that floor, not be lifted onto the crater rim.</p>';
   $('out').innerHTML = h;
 }
 addEventListener('load', () => setTimeout(run, 500));

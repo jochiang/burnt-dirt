@@ -595,11 +595,15 @@ const chuteOn = {player:false, enemy:false};   // does this descent have a canop
 
 function groundUnder(t){
   const cx = Math.round(t.x), half = 5;
-  let g = 0, any = false;
-  for(let x = Math.max(0, cx-half); x <= Math.min(W-1, cx+half); x++){
-    if(surf[x] < H){ any = true; g = Math.max(g, surf[x]); }   // deepest support in the footprint
-  }
-  return any ? g : H;      // H means nothing under it anywhere: a bottomless hole
+  // Deepest support in the footprint, INCLUDING the map floor. This used to skip any column with
+  // surf[x] === H — an empty column — on the grounds that H meant "bottomless". But solid() returns
+  // true at y >= H: the floor of the map IS a surface. Skipping those columns meant that when a
+  // crater punched through under a tank, the only surviving columns in its footprint were the
+  // crater's RIM, so the tank was lifted onto the highest nearby ground instead of falling into the
+  // hole it had just been dropped into.
+  let g = 0;
+  for(let x = Math.max(0, cx-half); x <= Math.min(W-1, cx+half); x++) g = Math.max(g, surf[x]);
+  return g;
 }
 function dropTanks(){
   for(const t of [player, enemy]){
@@ -615,8 +619,9 @@ function dropTanks(){
     fallVis[t === player ? 'player' : 'enemy'] = fall;
     state.fx.push({x: t.x, y: g, r: 7, t: 0, land: true});
     if(!recording) continue;        // a replay must move the tank, never wound it again
-    if(g >= H){ t.hp = 0; continue; }   // dug clean through: a chute cushions a LANDING, and
-                                        // there is no landing at the bottom of the world
+    // There is no "dug clean through" case: solid() is true at y >= H, so a hole can never go
+    // deeper than the world's floor, and arriving at the floor is an ordinary landing with ordinary
+    // fall damage — which is also what makes the manual's parachute rule mean anything down there.
     if(fall <= FALL_SAFE) continue;
     // The manual: the onboard computer estimates the damage the fall will do, and "if your
     // parachutes are deployed, and the safety threshold is less than the amount of damage you
@@ -1253,30 +1258,49 @@ function stepProj(){
   // is what makes burial work: a buried tank's muzzle is inside dirt, and at VMAX 8px/tick a shot
   // given even one tick of travel can punch through a thin covering and escape. Checked only on
   // tick 0, so no other trajectory in the game changes.
-  if(p.t === 0 && p.y >= 0 && solid(p.x, p.y)){
+  // ONE definition of buried, shared by the HUD, by dropTanks and by this check. This test used to
+  // be "is the muzzle's own cell solid", which disagrees with buried() the moment anything clears the
+  // muzzle — and this branch's own barrel crater does exactly that, so after a single dig-shot the
+  // tank stopped bursting at all and fired ordinary shells for the rest of the match (measured: the
+  // surface went 110 → 120 on shot 1, then nothing for forty). The firer is resolved out here so
+  // both tests use the same value.
+  const firer = p.owner === 'player' ? player : enemy;
+  if(p.t === 0 && buried(firer)){
     // A buried tank still fires, and this is that shot: it bursts where it stands and DIGS. It has
+    // NOTE for anyone editing this block: `r` and the fx push below were briefly swallowed by a
+    // comment-tidying slice that ran from one stale comment block to another with the code sitting
+    // between them — the whole branch threw ReferenceError at runtime. Keep declarations above the
+    // first thing that uses them, and check a slice edit removed only comments.
+    const r = Math.max(5, p.w.r*0.7);
+    state.fx.push({x:p.x, y:p.y, r, t:0});
     // to carve, or the third way out of a burial — keep firing and dig yourself out badly, one
     // crater at a time — does not exist, and the whole no-damage rule rests on that option being
     // real. It deals no damage, to anyone, because burial is punished in TURNS, not hit points.
     if(p.owner === 'player') state.msg = 'BURIED · SHOT BURST AT THE MUZZLE';
-    // The crater is centred on the FIRER, not on the muzzle. Carving at the muzzle digs dirt off
-    // the roof and leaves the hull exactly as covered as it was — the tank can fire forever and
-    // never get out, which is the third way out silently not existing. The muzzle position is still
-    // where the flash goes, because that is where the shell hit.
-    // The crater is cut from the TOP of the overburden downward. Three other placements were
-    // measured and all three fail in the same way — they remove the same region on every shot, so
-    // nothing accumulates and the tank never gets out:
-    //   at the hull   -> removes its own floor; the tank sinks and the roof follows it down (30
-    //                    shots with a Baby Missile, still buried, burrowing into bedrock)
-    //   at the muzzle -> clears the exact cell the muzzle already occupied, and nothing else
-    //   above the hull-> clears a fixed band below the roof, which the 24px window survives
-    // Eating from the top is the only placement that makes progress, and it makes it in proportion
-    // to the shell: a Baby Missile needs a few turns, a Nuke does it in one.
-    const firer = p.owner === 'player' ? player : enemy, r = Math.max(5, p.w.r*0.7);
-    let top = tankCy(firer);
-    while(top > 0 && solid(firer.x, top - 1)) top--;      // the first open cell above the tank
-    state.fx.push({x:p.x, y:p.y, r, t:0});
-    carve(firer.x, top + r*0.5, r);
+    // The digging crater is cut from the TOP of the covering downward, and that placement was
+    // arrived at by measurement rather than reasoning — three others all fail the same way, by
+    // removing the same region on every shot so that nothing accumulates and the tank never gets out:
+    //   at the hull         → removes its own floor; the tank sinks and the roof follows it down
+    //   at the muzzle       → clears the exact cell the muzzle occupied, and nothing beyond it
+    //   just above the hull → clears a fixed band that the overburden window survives
+    // Only eating downward from the top makes progress, which is also why the cost of digging out
+    // scales with the shell: a bigger crater takes a bigger bite out of the covering.
+    // TWO craters, and the reason is worth keeping because it cost several attempts to learn:
+    //  · carving only AT the muzzle clears the cell the muzzle already occupied and nothing beyond
+    //    it, so the tank never gets out;
+    //  · carving only at the TOP of the covering digs properly but opens the hole at the surface,
+    //    which reads as the shell impacting in mid-air above you and a crater appearing out of
+    //    nowhere on the skyline;
+    // so do what a shell bursting in confined space actually does — vent at the barrel, and blow the
+    // nearest free surface out. One crater where the impact is SEEN, one where the digging HAPPENS.
+    carve(Math.round(p.x), Math.round(p.y), Math.max(4, Math.round(r*0.7)));
+    // The digging crater is anchored on the COLUMN'S SURFACE, not on "the first open cell above the
+    // tank". That distinction is the whole reason it works: the barrel crater above opens a small
+    // pocket right beside the hull, and a first-open-cell walk stops at that pocket — anchoring the
+    // next shot inside it, where it recarves the same air forever and the tank is never dug out
+    // (measured: 40 shots and still buried). surf[x] is the first solid cell from the sky down, so it
+    // finds the top of the covering regardless of any pockets punched into it.
+    carve(firer.x, surf[Math.round(Math.max(1, Math.min(W-2, firer.x)))] + r*0.5, r);
     endShot(Math.round(p.x), 'buried'); return;
   }
   p.t++;

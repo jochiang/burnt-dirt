@@ -850,3 +850,47 @@ Earth weapons judged on damage that a fall does not explain.
 
 Verified after the fix: all nine damaging weapons hurt (14–100hp), and every deliberately harmless
 one deals exactly 0.
+
+
+---
+
+## Two interaction faults from play (2026-09-12)
+
+### FIXED — a buried shell's impact appeared at the surface, not at the barrel
+
+Carving only at the top of the covering (the one placement that accumulates) meant the crater opened at
+the skyline, reading as a shell impacting in mid-air above you. Carving only at the muzzle is the
+opposite failure: it clears the single cell the muzzle occupied and nothing beyond, and the tank can
+never dig out. A shell bursting in confined space does both, so now there are two craters per shot —
+one where the impact is SEEN, one where the digging HAPPENS. Measured after: the covering descends 10px
+per shot, and the dig-out cost is unchanged at 3 / 5 / 10 turns for a Clod / Ball / Ton.
+
+### FIXED — a tank dropped through the floor was lifted to the nearest high ground
+
+`groundUnder()` skipped any column with `surf[x] === H` as "bottomless". So when a crater punched
+through under a tank, the only surviving columns in its footprint were the crater's **rim**, and the
+tank was placed on the highest nearby ground instead of falling into the hole it had just been dropped
+into. `solid()` returns true at `y >= H` — the floor of the map IS a surface — so those columns are now
+counted, a tank rests on the floor, and the old "dug clean through → destroyed" rule (which would have
+killed every tank that reached the bottom) is gone. Arriving at the floor is now an ordinary landing
+with ordinary fall damage, which is also what lets a parachute mean something down there.
+
+### And the defect I introduced while fixing them, worth recording
+
+Tidying stale comments, I replaced a slice of text running from one obsolete comment block to another.
+The `const r` declaration and the `state.fx.push` line were sitting **between those two anchors**, so the
+slice deleted live code and the whole buried branch threw `ReferenceError` at runtime. Caught
+immediately by the next test run. The lesson is not "don't tidy comments", it is: **after any
+text-slice edit, assert that what was removed contained nothing but comments.**
+
+### The definitional pattern, once more
+
+The buried branch asked *"is the muzzle's own cell solid"* while the HUD and `dropTanks()` asked
+*"is there a roof overhead"*. Those two agree right up until something clears the muzzle — which this
+branch's own barrel crater does on the first shot. After that the tank stopped bursting entirely and
+fired ordinary shells for the rest of the match. There is now exactly one `buried()`, and the HUD, the
+fall handler and the firing check all call it.
+
+Verified: the covering descends monotonically 110→160 over five shots with a crater at the barrel every
+time, Clod/Ball/Ton dig out in 3/5/10, the Riot Charge still frees in one turn, a punch-through leaves
+the tank resting on the floor and alive, and ordinary falls are unaffected.

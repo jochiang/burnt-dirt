@@ -219,6 +219,27 @@ scatter of twelve).
   detonations within ~46px of the impact, multi-coloured, "generally confined to the area where it
   hit", exactly as the manual describes.
 
+**Two things the first version of this got wrong, both found by playing** — and both worth keeping,
+because each is a definitional trap rather than a typo:
+
+1. *Where the burst is seen.* Carving only at the top of the covering digs properly but opens the hole
+   at the surface, so it reads as the shell impacting in mid-air above you. Carving only at the muzzle
+   puts the impact where you expect but clears the single cell the muzzle occupied and nothing beyond
+   it, so the tank never gets out. The answer is both: a shell bursting in confinement vents at the
+   barrel *and* blows the nearest free surface out. Two craters per shot — one where the impact is
+   seen, one where the digging happens — and the measured cost is unchanged (3 / 5 / 10 turns).
+2. *What "buried" means, for the third time.* The HUD, `dropTanks()` and the firing check each had
+   their own opinion. The firing check asked "is the muzzle's own cell solid", which the barrel crater
+   above then made false — so after one dig-shot the tank stopped bursting at all and fired ordinary
+   shells for the rest of the match. There is now exactly one `buried()` and all three use it.
+
+**And the floor of the map is a surface.** `groundUnder()` skipped any column with `surf[x] === H` as
+"bottomless", so when a crater punched through under a tank the only surviving columns in its footprint
+were the *rim* — and the tank was lifted onto the highest nearby ground instead of falling into the
+hole. `solid()` is true at `y >= H`: the floor is real, a tank rests on it, and arriving there is an
+ordinary landing with ordinary fall damage (which is also what makes the parachute rule mean something
+down there). The old "dug clean through → destroyed" rule was therefore removed.
+
 ### 3.4 Why the categories are self-consistent
 
 Worth stating, because it's what makes the catalog feel designed rather than accumulated:
