@@ -1128,6 +1128,15 @@ function save(why){
     $('saveLbl').style.color = '#ff8a6a';
   }
 }
+// A refused save is still someone's bank balance and their record, and the fresh state that follows
+// a refusal would overwrite it on the very next autosave. `saveBad` already protects the invariant
+// failure case, but a version or shape refusal returned null and left the stored bytes defenceless.
+// Keep them, under a key that says what happened, before the game moves on without them.
+function stashRefused(raw, why){
+  try {
+    localStorage.setItem(SAVE_KEY + '.refused', JSON.stringify({ why: why, at: Date.now(), raw: raw }));
+  } catch(e){ /* a full quota must not stop the game starting */ }
+}
 function readSave(){
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -1146,6 +1155,7 @@ function readSave(){
       sv.v = 12;
     }
     if(sv.v !== SAVE_VERSION){
+      stashRefused(raw, 'v' + sv.v);
       state.msg = 'SAVE v' + sv.v + ' ≠ v' + SAVE_VERSION + ' — STARTING FRESH';
       return null;
     }
@@ -1156,6 +1166,7 @@ function readSave(){
     const want = Object.keys(snapshot()).sort().join(',');
     const got  = Object.keys(sv).sort().join(',');
     if(want !== got){
+      stashRefused(raw, 'shape');
       state.msg = 'SAVE SHAPE MISMATCH — STARTING FRESH';
       return null;
     }

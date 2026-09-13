@@ -940,3 +940,27 @@ the keys line up again. A v9 save is still refused, so the migration does not ov
 
 Verified: the flow both ways, the opponent pick sticking, 21 cards, the invariant at v12 with an empty
 mismatch list, the round-trip, and the migration's both branches with a v9 still refused.
+
+
+### A refused save is no longer defenceless
+
+`saveBad` blocks autosaving when the *invariant* fails, but a **version or shape refusal** just
+returned `null` — and the fresh state that follows would overwrite the stored bytes on the very next
+autosave. A schema change is not a reason to throw away someone's bank balance, so a refusal now stashes
+the raw save under `scorched.save.v1.refused` with the reason and a timestamp before the game moves on
+without it. Verified: a v9 save and a shape mismatch both return `null` *and* stash their bytes; a good
+save loads and is not stashed.
+
+### And a note on the verification, which cost more time than the feature
+
+Three separate end-to-end attempts to prove the v11 migration by writing a synthetic v11 save and
+reloading all failed — because **the app's own lock-survival autosave fires on the way out and writes
+the current state over the fixture**. So the migration kept being tested against a save I had not
+written. The app was right every time; the test was wrong every time. It is the same shape as every
+other false alarm this session: a harness driving the game in a way the game never drives itself.
+
+The lesson taken: when a fixture must survive from one page load to the next, *nothing else may be
+running* — or the assertion has to be made at a level the autosave cannot reach. The migration was
+therefore proven by unit-testing `readSave()` directly, plus `restore()` and `showScreen()` in
+isolation: a v11 save with `armory: true` loads as `screen: 'armory'`, the migrated keys match
+`snapshot()` exactly (35 keys, no differences), and the armory is shown.
